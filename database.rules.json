@@ -1,0 +1,35 @@
+{
+  "rules": {
+    "usuarios": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid" }
+    },
+    "productos": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".indexOn": ["ean"]
+    },
+    "movimientos": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".indexOn": ["ts", "pid"]
+    },
+    "ingresos": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".indexOn": ["fecha", "num"]
+    },
+    "gastos": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".indexOn": ["fecha"]
+    },
+    "proveedores": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true"
+    },
+    "config": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true"
+    }
+  }
+}
