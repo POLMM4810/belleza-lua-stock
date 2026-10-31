@@ -81,6 +81,21 @@ nav button.on{color:var(--brand);font-weight:700}
 .foto{width:100%;max-height:320px;object-fit:contain;border-radius:12px;background:#000;margin:8px 0}
 #reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:220px}
 .empty{padding:24px;text-align:center;color:var(--muted)}
+.pv{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px 12px}
+.pv-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pl{display:grid;grid-template-columns:1fr 54px 84px 38px;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.pl:last-child{border-bottom:0}
+.pl .n{font-size:13px;font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.pl .m{font-size:11px;color:var(--muted)}
+.pl input{padding:8px 4px;text-align:center}
+.pl-cab{display:grid;grid-template-columns:1fr 54px 84px 38px;gap:6px;font-size:11px;color:var(--muted);margin-top:6px}
+.xbtn{border:0;background:#fde8e6;color:var(--bad);border-radius:8px;height:36px;font-weight:700;cursor:pointer}
+.sug{display:flex;align-items:center;gap:8px;padding:8px;margin:6px 0;border:1px dashed var(--brand);border-radius:10px;background:var(--brand2);font-size:13px}
+.sug .t{flex:1;min-width:0}
+.sug .btn{padding:8px 10px;flex:0 0 auto}
+.sug .xbtn{flex:0 0 36px}
+input[readonly]{background:#f3eeea;color:var(--muted)}
+#iReader{width:100%;border-radius:12px;overflow:hidden;background:#000;min-height:200px;margin-top:8px}
 .login{max-width:380px;margin:12vh auto 0;padding:0 16px}
 .login h1{color:var(--brand);text-align:center}
 .err{color:var(--bad);font-size:14px;margin-top:8px}
@@ -294,6 +309,9 @@ const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateStrin
 const isLow = (p) => (p.min || 0) > 0 && (p.stock || 0) < p.min;
 const show = (id, on) => $(id).classList.toggle("hidden", !on);
 const mesNombre = (ym) => `${MESES[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
+const comaNum = (n) => (n == null || n === "" ? "" : String(r2(n)).replace(".", ","));
+const norm = (s) => String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+const aLista = (v) => (Array.isArray(v) ? v.filter(Boolean) : v && typeof v === "object" ? Object.values(v).filter(Boolean) : []);
 
 function toast(msg) {
   const t = document.createElement("div");
@@ -388,8 +406,9 @@ $("mPrev").onclick = () => moverMes(-1);
 $("mNext").onclick = () => moverMes(1);
 
 /* ---------- SHEETS ---------- */
-function closeSheet() { $("sheetRoot").innerHTML = ""; }
+function closeSheet() { if (S.scanner) stopScan(); $("sheetRoot").innerHTML = ""; }
 function sheet(html) {
+  if (S.scanner) stopScan();
   $("sheetRoot").innerHTML = `<div class="sheet-bg" id="sbg"><div class="sheet">${html}</div></div>`;
   $("sbg").onclick = (e) => { if (e.target.id === "sbg" && !S.cola.length) closeSheet(); };
 }
@@ -435,7 +454,7 @@ Para cada hoja visible extrae:
 - total: importe manuscrito junto a "TOTAL" (IVA incluido). Número con punto decimal.
 - cremas: suma de los importes de las líneas que sean cremas o cosmética vendida (0 si no hay).
 - colonias: suma de los importes de las líneas de colonias o perfumes (0 si no hay).
-- lineas: lista de {"concepto","importe"} con lo escrito en las líneas.
+- lineas: lista de {"concepto","unidades","importe"} con lo escrito en cada línea (importe = total de la línea; unidades = 1 si no se indica).
 - dudas: texto breve si algo no se lee con claridad; "" si todo está claro.
 No incluyas el nombre de la clienta. Usa null si un dato no aparece.
 Responde solo con JSON: {"hojas":[{"numero":..,"fecha":..,"total":..,"cremas":..,"colonias":..,"lineas":[..],"dudas":".."}]}.
@@ -564,7 +583,7 @@ function renderIng() {
     const nG = gruposDeclarando(hs).length;
     return `<div class="list"><div class="dayh"><span>${DIAS[dParse(f).getDay()]} ${fCorta(f)} · ${hs.length} hoja${hs.length > 1 ? "s" : ""}${nG > 1 ? " · " + nG + " facturas" : ""}</span><span>${eur(tot)}</span></div>
     ${hs.map((x) => `<div class="item" data-id="${esc(x.id)}"><div class="t"><div class="d">Nº ${x.num}</div>
-      <div class="m">${x.cremas ? "Cremas " + eur(x.cremas) : ""}${x.cremas && x.colonias ? " · " : ""}${x.colonias ? "Colonias " + eur(x.colonias) : ""}${x.origen === "foto" ? (x.cremas || x.colonias ? " · " : "") + "📷" : ""}</div></div>
+      <div class="m">${x.cremas ? "Cremas " + eur(x.cremas) : ""}${x.cremas && x.colonias ? " · " : ""}${x.colonias ? "Colonias " + eur(x.colonias) : ""}${x.origen === "foto" ? (x.cremas || x.colonias ? " · " : "") + "📷" : ""}${aLista(x.productos).length ? (x.cremas || x.colonias || x.origen === "foto" ? " · " : "") + "🧴 " + aLista(x.productos).reduce((s, l) => s + (int(l.uds) || 0), 0) : ""}</div></div>
       <div class="money">${eur(x.total)}</div></div>`).join("")}</div>`;
   }).join("");
   $("ingList").querySelectorAll(".item").forEach((el) => (el.onclick = () => editIngreso(el.dataset.id)));
@@ -578,22 +597,222 @@ function formIngreso(d, titulo, ctx) {
     <div><label>Fecha</label><input id="iFecha" type="date" value="${esc(d.fecha || "")}"></div></div>
     <label>Total (IVA incluido)</label><input id="iTotal" inputmode="decimal" value="${d.total == null ? "" : String(d.total).replace(".", ",")}" style="font-size:22px;font-weight:700">
     <div class="row"><div><label>De ello, cremas</label><input id="iCremas" inputmode="decimal" value="${d.cremas ? String(d.cremas).replace(".", ",") : ""}"></div>
-    <div><label>De ello, colonias</label><input id="iColonias" inputmode="decimal" value="${d.colonias ? String(d.colonias).replace(".", ",") : ""}"></div></div>`;
+    <div><label>De ello, colonias</label><input id="iColonias" inputmode="decimal" value="${d.colonias ? String(d.colonias).replace(".", ",") : ""}"></div></div>
+    <div class="pv">
+      <div class="pv-h"><b>Productos vendidos</b><span class="muted" id="iPvTot"></span></div>
+      <div id="iSug"></div>
+      <div class="pl-cab hidden" id="iCab"><span>Producto</span><span style="text-align:center">Uds</span><span style="text-align:center">€/ud (IVA)</span><span></span></div>
+      <div id="iLines"></div>
+      <div id="iPick" class="hidden">
+        <input id="iQ" placeholder="Buscar por nombre, código o referencia" autocomplete="off" style="margin-top:8px">
+        <div id="iRes" class="list" style="margin:6px 0 0"></div>
+        <div id="iReader" class="hidden"></div>
+        <div class="row" style="margin-top:8px"><button class="btn sec" id="iScan">📷 Escanear</button><button class="btn ghost" id="iPickClose">Cerrar</button></div>
+      </div>
+      <button class="btn ghost full" style="margin-top:8px" id="iAdd">+ Producto</button>
+      <div class="muted" style="margin-top:6px">Al guardar se descuentan del stock. Lo de Yodeyma suma en Colonias; el resto, en Cremas.</div>
+    </div>`;
+}
+
+/* ---------- Productos vendidos en la hoja ---------- */
+let FL = { lineas: [], sug: [] };
+const esColonia = (p) => /YODEYMA/.test(norm((p && p.prov) || "") + " " + norm((p && p.desc) || ""));
+function lineaDe(pid, uds, precio) {
+  const p = S.prods[pid];
+  return { pid, desc: p.desc, uds: uds || 1, precio: precio != null ? r2(precio) : (p.pvp != null ? r2(p.pvp) : null), col: esColonia(p) };
+}
+function enlazarProductos(lineas, sug) {
+  FL = { lineas: aLista(lineas).map((l) => ({ pid: l.pid, desc: l.desc, uds: int(l.uds) || 1, precio: l.precio == null ? null : r2(l.precio), col: S.prods[l.pid] ? esColonia(S.prods[l.pid]) : !!l.col })), sug: (sug || []).slice() };
+  $("iAdd").onclick = abrirPicker;
+  $("iPickClose").onclick = cerrarPicker;
+  $("iQ").addEventListener("input", buscarPick);
+  $("iScan").onclick = async () => {
+    show("iReader", true);
+    const ok = await startScanner("iReader", (code) => {
+      show("iReader", false);
+      const id = buscarEan(code);
+      if (id) addLinea(id); else toast("El código " + String(code).replace(/\D/g, "") + " no está en el catálogo");
+    });
+    if (!ok) show("iReader", false);
+  };
+  renderSug(); renderLineas();
+}
+function renderLineas() {
+  const L = FL.lineas;
+  show("iCab", L.length > 0);
+  $("iLines").innerHTML = L.map((l, i) => {
+    const p = S.prods[l.pid];
+    const info = (l.col ? "Colonia" : "Crema / cosmética") + (p ? " · stock " + (p.stock || 0) : " · ya no está en el catálogo");
+    return `<div class="pl"><div style="min-width:0"><div class="n">${esc(l.desc)}</div><div class="m">${esc(info)}</div></div>
+      <input data-i="${i}" data-k="uds" inputmode="numeric" value="${l.uds}" aria-label="Unidades">
+      <input data-i="${i}" data-k="precio" inputmode="decimal" value="${comaNum(l.precio)}" placeholder="€" aria-label="Precio por unidad con IVA">
+      <button class="xbtn" data-q="${i}" aria-label="Quitar">✕</button></div>`;
+  }).join("");
+  $("iLines").querySelectorAll("input").forEach((el) => el.addEventListener("input", () => {
+    const l = FL.lineas[+el.dataset.i]; if (!l) return;
+    if (el.dataset.k === "uds") l.uds = int(el.value); else l.precio = num(el.value);
+    sumarLineas();
+  }));
+  $("iLines").querySelectorAll("[data-q]").forEach((b) => (b.onclick = () => { FL.lineas.splice(+b.dataset.q, 1); renderLineas(); }));
+  sumarLineas();
+}
+function sumarLineas() {
+  const L = FL.lineas, hay = L.length > 0;
+  let cr = 0, co = 0;
+  L.forEach((l) => { const v = (int(l.uds) || 0) * (Number(l.precio) || 0); if (l.col) co += v; else cr += v; });
+  cr = r2(cr); co = r2(co);
+  $("iCremas").readOnly = hay; $("iColonias").readOnly = hay;
+  if (hay) { $("iCremas").value = cr ? comaNum(cr) : ""; $("iColonias").value = co ? comaNum(co) : ""; }
+  const uds = L.reduce((s, l) => s + (int(l.uds) || 0), 0);
+  $("iPvTot").textContent = hay ? `${uds} ud${uds === 1 ? "" : "s"} · ${eur(cr + co)}` : "";
+}
+function abrirPicker() {
+  if (!Object.keys(S.prods).length) return toast("Primero carga el catálogo en Stock");
+  show("iPick", true); show("iAdd", false);
+  $("iQ").value = ""; buscarPick(); $("iQ").focus();
+}
+function cerrarPicker() { if (S.scanner) stopScan(); show("iReader", false); show("iPick", false); show("iAdd", true); }
+function buscarPick() {
+  const q = norm($("iQ").value.trim());
+  let res = [];
+  if (q) {
+    const d = q.replace(/\D/g, "");
+    res = Object.entries(S.prods).filter(([, p]) => norm(p.desc).includes(q) || (d.length >= 3 && ((p.ean || "").includes(d) || (p.cod || "").includes(d))))
+      .sort((a, b) => (a[1].uso === "Venta" ? 0 : 1) - (b[1].uso === "Venta" ? 0 : 1) || (a[1].desc || "").localeCompare(b[1].desc || "")).slice(0, 12);
+  }
+  $("iRes").innerHTML = !q ? `<div class="empty" style="padding:12px">Escribe parte del nombre o el código</div>`
+    : res.length ? res.map(([id, p]) => `<div class="item" data-id="${esc(id)}"><div class="t"><div class="d">${esc(p.desc)}</div><div class="m">${esc(p.prov || "")} · stock ${p.stock || 0}</div></div><div class="money">${p.pvp != null ? eur(p.pvp) : "—"}</div></div>`).join("")
+    : `<div class="empty" style="padding:12px">Sin resultados</div>`;
+  $("iRes").querySelectorAll(".item").forEach((el) => (el.onclick = () => addLinea(el.dataset.id)));
+}
+function addLinea(pid, uds, precio) {
+  if (!S.prods[pid]) return toast("Ese producto ya no está en el catálogo");
+  const igual = precio == null && FL.lineas.find((l) => l.pid === pid);
+  if (igual) igual.uds = (int(igual.uds) || 0) + (uds || 1);
+  else FL.lineas.push(lineaDe(pid, uds, precio));
+  cerrarPicker(); renderLineas();
+}
+/* Sugerencias de la IA: el producto del catálogo más parecido a cada línea leída. Nunca se añaden solas. */
+const VACIAS = new Set(["CON", "DEL", "LOS", "LAS", "PARA", "POR", "UND", "UDS", "UNIDAD", "UNIDADES", "EUR"]);
+function palabras(s) {
+  return norm(s).replace(/([A-Z])(\d)/g, "$1 $2").replace(/(\d)([A-Z])/g, "$1 $2").replace(/[^A-Z0-9]+/g, " ").split(" ")
+    .filter((w) => w.length >= 3 && !VACIAS.has(w) && !/^\d+$/.test(w));
+}
+const casa = (w, x) => x === w || (Math.min(x.length, w.length) >= 4 && (x.startsWith(w) || w.startsWith(x)));
+/* Peso de cada palabra según lo rara que es en el catálogo: "CREMA" o "FACIAL" pesan poco; "COMFORT" pesa mucho. */
+let IDF = null, IDF_N = -1;
+function pesos() {
+  const ps = Object.values(S.prods);
+  if (IDF && IDF_N === ps.length) return IDF;
+  const df = {};
+  ps.forEach((p) => new Set(palabras(p.desc)).forEach((w) => { df[w] = (df[w] || 0) + 1; }));
+  IDF = { df, n: ps.length || 1 }; IDF_N = ps.length;
+  return IDF;
+}
+function productoParecido(texto) {
+  const q = [...new Set(palabras(texto))];
+  if (!q.length) return null;
+  const P = pesos();
+  const peso = (w) => Math.log(1 + P.n / (P.df[w] || 0.5));
+  const total = q.reduce((s, w) => s + peso(w), 0);
+  let mejor = null;
+  Object.entries(S.prods).forEach(([id, p]) => {
+    const d = palabras(p.desc);
+    if (!d.length) return;
+    const hit = q.filter((w) => d.some((x) => casa(w, x)));
+    if (!hit.some((w) => w.length >= 4)) return;
+    const cubre = hit.reduce((s, w) => s + peso(w), 0) / total;      // cuánto de lo leído aparece en el producto
+    const extra = d.filter((x) => q.some((w) => casa(w, x))).length / d.length; // cuánto del producto aparece en lo leído
+    const score = cubre * 0.8 + extra * 0.2;
+    if (!mejor || score > mejor.score) mejor = { id, score, cubre };
+  });
+  return mejor && mejor.cubre >= 0.6 && mejor.score >= 0.55 ? mejor.id : null;
+}
+function sugerencias(lineasIA) {
+  const out = [];
+  (lineasIA || []).forEach((l) => {
+    const concepto = String((l && l.concepto) || "").trim(); if (!concepto) return;
+    const pid = productoParecido(concepto); if (!pid) return;
+    const uds = int(l.unidades) > 0 ? int(l.unidades) : 1;
+    const imp = num(l.importe);
+    out.push({ concepto, pid, uds, precio: imp != null && imp > 0 ? r2(imp / uds) : null });
+  });
+  return out;
+}
+function renderSug() {
+  const s = FL.sug.filter((x) => S.prods[x.pid]);
+  FL.sug = s;
+  $("iSug").innerHTML = s.length ? `<div class="muted" style="margin-top:6px">La IA ha leído estas líneas. Confirma las que sean correctas:</div>` + s.map((x, i) => {
+    const p = S.prods[x.pid];
+    return `<div class="sug"><div class="t">«${esc(x.concepto)}»${x.precio != null ? " · " + eur(x.precio * x.uds) : ""}<br><b>¿${esc(p.desc)}?</b>${x.uds > 1 ? " × " + x.uds : ""}</div>
+      <button class="btn" data-a="${i}">Añadir</button><button class="xbtn" data-n="${i}" aria-label="Descartar">✕</button></div>`;
+  }).join("") : "";
+  $("iSug").querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => { const x = FL.sug[+b.dataset.a]; FL.sug.splice(+b.dataset.a, 1); renderSug(); addLinea(x.pid, x.uds, x.precio); }));
+  $("iSug").querySelectorAll("[data-n]").forEach((b) => (b.onclick = () => { FL.sug.splice(+b.dataset.n, 1); renderSug(); }));
 }
 function leerFormIngreso() {
   const d = { num: int($("iNum").value), fecha: $("iFecha").value, total: r2(num($("iTotal").value)), cremas: r2(num($("iCremas").value) || 0), colonias: r2(num($("iColonias").value) || 0) };
   if (!d.num) return [null, "Falta el nº de hoja"];
   if (!validISO(d.fecha)) return [null, "Fecha no válida"];
   if (!(d.total > 0)) return [null, "Falta el total"];
-  if (d.cremas + d.colonias > d.total + 0.01) return [null, "Cremas + colonias no pueden superar el total"];
+  for (const l of FL.lineas) {
+    if (!(int(l.uds) >= 1)) return [null, "Unidades no válidas en " + l.desc];
+    if (l.precio == null || !(Number(l.precio) >= 0)) return [null, "Falta el precio de " + l.desc];
+  }
+  d.productos = FL.lineas.map((l) => ({ pid: l.pid, desc: l.desc, uds: int(l.uds), precio: r2(l.precio), col: !!l.col }));
+  if (d.productos.length) {
+    d.cremas = r2(d.productos.filter((l) => !l.col).reduce((s, l) => s + l.uds * l.precio, 0));
+    d.colonias = r2(d.productos.filter((l) => l.col).reduce((s, l) => s + l.uds * l.precio, 0));
+  }
+  if (d.cremas + d.colonias > d.total + 0.01) return [null, "Cremas + colonias no pueden superar el total de la hoja"];
   return [d, null];
 }
+/* Suma o resta unidades al stock de varios productos (una transacción por producto). Devuelve los que fallen. */
+async function ajustarStock(deltas) {
+  const fallos = [];
+  for (const pid of Object.keys(deltas)) {
+    const dlt = deltas[pid];
+    if (!dlt || !S.prods[pid]) continue; // producto borrado del catálogo: no se recrea
+    try {
+      const r = await db.ref("productos/" + pid + "/stock").transaction((cur) => (cur || 0) + dlt);
+      if (!r.committed) fallos.push(pid);
+    } catch (e) { console.error(e); fallos.push(pid); }
+  }
+  if (fallos.length) alert("No se pudo actualizar el stock de: " + fallos.map((p) => (S.prods[p] || {}).desc || p).join(", ") + ". Revísalo con un recuento.");
+  return fallos;
+}
+/* Guarda la hoja y, en el mismo paso, sus ventas de stock. Al editar, deshace las ventas anteriores de la hoja. */
 async function guardarIngreso(id, d, origen) {
   const dup = Object.entries(S.ingresos).find(([k, x]) => k !== id && x.num === d.num && Math.abs(dParse(x.fecha) - dParse(d.fecha)) < 120 * 864e5);
   if (dup && !confirm(`Ya existe la hoja Nº ${d.num} del ${fLarga(dup[1].fecha)} (${eur(dup[1].total)}). ¿Guardar también esta?`)) return false;
-  const data = Object.assign({}, d, { origen: origen || "manual", email: S.user.email, ts: firebase.database.ServerValue.TIMESTAMP });
-  if (id) await db.ref("ingresos/" + id).update(data); else await db.ref("ingresos").push(data);
+  const key = id || db.ref("ingresos").push().key;
+  const antes = id ? aLista((S.ingresos[id] || {}).productos) : [];
+  const deltas = {};
+  const upd = {};
+  antes.forEach((l) => { if (l.mov) upd["movimientos/" + l.mov] = null; deltas[l.pid] = (deltas[l.pid] || 0) + (int(l.uds) || 0); });
+  const TS = firebase.database.ServerValue.TIMESTAMP;
+  const productos = (d.productos || []).map((l) => {
+    const mov = db.ref("movimientos").push().key;
+    const p = S.prods[l.pid] || {};
+    upd["movimientos/" + mov] = { ts: TS, pid: l.pid, desc: l.desc, tipo: "venta", uds: l.uds, bnf: 0, delta: -l.uds, coste: p.coste == null ? null : p.coste, precio: l.precio, email: S.user.email, ref: "Hoja Nº " + d.num, ing: key };
+    deltas[l.pid] = (deltas[l.pid] || 0) - l.uds;
+    const o = { pid: l.pid, desc: l.desc, uds: l.uds, precio: l.precio, mov };
+    if (l.col) o.col = true;
+    return o;
+  });
+  const data = Object.assign({}, d, { productos: productos.length ? productos : null, origen: origen || "manual", email: S.user.email, ts: TS });
+  if (id) Object.keys(data).forEach((k) => { upd["ingresos/" + key + "/" + k] = data[k] === undefined ? null : data[k]; });
+  else upd["ingresos/" + key] = data;
+  await db.ref().update(upd); // hoja + movimientos en una sola escritura
+  await ajustarStock(deltas);
   return true;
+}
+async function borrarIngreso(id) {
+  const x = S.ingresos[id]; if (!x) return;
+  const upd = { ["ingresos/" + id]: null }, deltas = {};
+  aLista(x.productos).forEach((l) => { if (l.mov) upd["movimientos/" + l.mov] = null; deltas[l.pid] = (deltas[l.pid] || 0) + (int(l.uds) || 0); });
+  await db.ref().update(upd);
+  await ajustarStock(deltas);
 }
 
 function editIngreso(id) {
@@ -602,11 +821,18 @@ function editIngreso(id) {
     <button class="btn full" style="margin-top:16px" id="iOk">Guardar</button>
     <button class="btn bad full" style="margin-top:8px" id="iDel">Eliminar</button>
     <button class="btn ghost full" style="margin-top:8px" id="iBack">Cerrar</button>`);
+  enlazarProductos(x.productos);
   $("iBack").onclick = closeSheet;
-  $("iDel").onclick = async () => { if (!confirm("¿Eliminar la hoja Nº " + x.num + "?")) return; await db.ref("ingresos/" + id).remove(); closeSheet(); toast("Eliminada"); };
+  $("iDel").onclick = async () => {
+    const uds = aLista(x.productos).reduce((s, l) => s + (int(l.uds) || 0), 0);
+    if (!confirm("¿Eliminar la hoja Nº " + x.num + "?" + (uds ? ` Se devolverán ${uds} ud${uds === 1 ? "" : "s"} al stock.` : ""))) return;
+    $("iDel").disabled = true;
+    try { await borrarIngreso(id); closeSheet(); toast("Eliminada"); } catch (e) { console.error(e); toast("Error al eliminar"); $("iDel").disabled = false; }
+  };
   $("iOk").onclick = async () => {
     const [d, err] = leerFormIngreso(); if (err) return toast(err);
-    try { if (await guardarIngreso(id, d, x.origen)) { closeSheet(); toast("Guardado"); } } catch (e) { console.error(e); toast("Error al guardar"); }
+    $("iOk").disabled = true;
+    try { if (await guardarIngreso(id, d, x.origen)) { closeSheet(); toast("Guardado"); } else $("iOk").disabled = false; } catch (e) { console.error(e); toast("Error al guardar"); $("iOk").disabled = false; }
   };
 }
 
@@ -616,15 +842,19 @@ function hojaManual(preset) {
     <button class="btn full" style="margin-top:16px" id="iNext">Guardar y siguiente</button>
     <button class="btn sec full" style="margin-top:8px" id="iOk">Guardar y cerrar</button>
     <button class="btn ghost full" style="margin-top:8px" id="iBack">Cancelar</button>`);
+  enlazarProductos([]);
   setTimeout(() => { const t = $("iTotal"); if (t) t.focus(); }, 50);
   $("iBack").onclick = closeSheet;
+  let enCurso = false;
   const go = async (seguir) => {
+    if (enCurso) return;
     const [dd, err] = leerFormIngreso(); if (err) return toast(err);
+    enCurso = true;
     try {
-      if (!(await guardarIngreso(null, dd, "manual"))) return;
+      if (!(await guardarIngreso(null, dd, "manual"))) { enCurso = false; return; }
       toast("Hoja " + dd.num + " guardada");
       if (seguir) hojaManual({ num: dd.num + 1, fecha: dd.fecha }); else closeSheet();
-    } catch (e) { console.error(e); toast("Error al guardar"); }
+    } catch (e) { console.error(e); toast("Error al guardar"); enCurso = false; }
   };
   $("iNext").onclick = () => go(true);
   $("iOk").onclick = () => go(false);
@@ -649,6 +879,7 @@ $("ingFotos").onchange = async (e) => {
       hojas.forEach((h) => cola.push({
         tipo: "ing", foto: img.dataUrl, origen: "foto",
         datos: { num: int(h.numero) || null, fecha: validISO(h.fecha) ? h.fecha : null, total: num(h.total), cremas: num(h.cremas) || 0, colonias: num(h.colonias) || 0 },
+        sug: sugerencias(h.lineas),
         nota: [h.dudas, (h.lineas || []).map((l) => `${l.concepto || ""} ${l.importe != null ? l.importe : ""}`.trim()).filter(Boolean).join(" · ")].filter(Boolean).join(" — ")
       }));
     } catch (err) {
@@ -676,16 +907,18 @@ function revisarCola() {
     <button class="btn full" style="margin-top:16px" id="iOk">Guardar y siguiente</button>
     <button class="btn ghost full" style="margin-top:8px" id="iSkip">Descartar esta</button>
     <button class="btn ghost full" style="margin-top:8px" id="iStop">Cancelar el resto</button>`);
+  enlazarProductos([], c.sug);
   $("iSkip").onclick = () => { S.cola.shift(); revisarCola(); };
   $("iStop").onclick = () => { if (confirm("¿Descartar las " + S.cola.length + " pendientes?")) { S.cola = []; revisarCola(); } };
   $("iOk").onclick = async () => {
     const [d, err] = leerFormIngreso(); if (err) return toast(err);
+    $("iOk").disabled = true;
     try {
-      if (!(await guardarIngreso(null, d, c.origen || "manual"))) return;
+      if (!(await guardarIngreso(null, d, c.origen || "manual"))) { $("iOk").disabled = false; return; }
       S.colaN++; S.cola.shift();
       if (S.cola[0] && S.cola[0].tipo === "ing" && !S.cola[0].origen) S.cola[0].datos.num = d.num + 1;
       revisarCola();
-    } catch (e) { console.error(e); toast("Error al guardar"); }
+    } catch (e) { console.error(e); toast("Error al guardar"); $("iOk").disabled = false; }
   };
 }
 
@@ -829,7 +1062,7 @@ function datosIA(r) {
 }
 function completarProveedor(d) {
   const p = S.provs[d.nif] || Lector.PROVEEDORES[d.nif];
-  if (p) { d.proveedor = d.proveedor || p.nombre; d.categoria = p.cat; }
+  if (p) { d.proveedor = d.proveedor || p.nombre; d.categoria = d.categoria || p.cat; }
   if (!d.categoria) d.categoria = "OTROS";
   return d;
 }
@@ -850,8 +1083,10 @@ $("gasFiles").onchange = async (e) => {
           const r = Lector.leerFactura(lineas, { nifPropio: S.cfg.nif_propio || "", aprendidos: S.provs });
           item.datos = { proveedor: r.proveedor, nif: r.nif, numero: r.numero, fecha: r.fecha, base: r.base, tipoIva: r.tipoIva, iva: r.iva, retencion: r.retencion, total: r.total, categoria: r.categoria };
           item.nota = r.avisos.join(" · ");
-          if (r.nif === "A03050572") item.lineas = Lector.lineasGdC(lineas).filter((l) => l.uvta + l.bnf !== 0);
-          if (r.total == null && iaDisponible()) {
+          // Justificantes del banco y declaraciones: no son facturas (las de SS e impuestos sí son el comprobante del gasto)
+          if (["justificante_pago", "declaracion", "extracto"].includes(r.tipoDoc)) item.nota = "⚠ " + item.nota;
+          if (r.nif === "A03050572" && r.tipoDoc === "factura") item.lineas = Lector.lineasGdC(lineas).filter((l) => l.uvta + l.bnf !== 0);
+          if (r.total == null && r.tipoDoc === "factura" && iaDisponible()) {
             const ri = await ia(promptGasto(), null, null, texto.slice(0, 15000));
             item.datos = Object.assign(datosIA(ri), { categoria: item.datos.categoria });
             item.nota = "Leída con IA: revisa los datos.";
@@ -1079,6 +1314,11 @@ async function registrar(id, tipo, uds, bnf, precio) {
 
 async function undoMove(mid) {
   const m = S.movs.find((x) => x.id === mid); if (!m) return;
+  if (m.ing) {
+    if (!S.ingresos[m.ing]) return toast("Esta venta es de una hoja del talonario que ya no existe");
+    toast(`Esta venta es de la ${m.ref || "hoja del talonario"}: se corrige editando la hoja`);
+    return editIngreso(m.ing);
+  }
   if (!sameDay(m.ts, Date.now())) return toast("Solo se deshacen movimientos de hoy");
   if (!confirm(`¿Deshacer "${TIPOS[m.tipo]}" de ${m.desc} (${m.delta > 0 ? "+" : ""}${m.delta})?`)) return;
   try {
@@ -1142,20 +1382,24 @@ function handleCode(code) {
   $("nfClose").onclick = closeSheet;
 }
 $("eanGo").onclick = () => handleCode($("eanIn").value);
-$("scanStart").onclick = async () => {
-  if (S.scanner) return;
-  try { await cargar(LIBS.qr); } catch (e) { return toast("No se pudo cargar el lector"); }
+/* Escáner de códigos de barras (Stock y hojas del talonario) */
+async function startScanner(elId, onCode) {
+  if (S.scanner) await stopScan();
+  try { await cargar(LIBS.qr); } catch (e) { toast("No se pudo cargar el lector"); return false; }
   try {
     const F = Html5QrcodeSupportedFormats;
-    S.scanner = new Html5Qrcode("reader", { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128], verbose: false });
+    const sc = new Html5Qrcode(elId, { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128], verbose: false });
+    S.scanner = sc;
     let leido = false;
-    await S.scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 140 } }, (txt) => {
+    await sc.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 140 } }, (txt) => {
       if (leido) return; leido = true;
       if (navigator.vibrate) navigator.vibrate(80);
-      stopScan().then(() => handleCode(txt));
+      stopScan().then(() => onCode(txt));
     }, () => {});
-  } catch (e) { console.error(e); S.scanner = null; toast("Permite el acceso a la cámara"); }
-};
+    return true;
+  } catch (e) { console.error(e); S.scanner = null; toast("Permite el acceso a la cámara"); return false; }
+}
+$("scanStart").onclick = () => { if (!S.scanner) startScanner("reader", handleCode); };
 $("scanStop").onclick = () => stopScan();
 async function stopScan() {
   if (!S.scanner) return;
