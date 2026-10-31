@@ -7,9 +7,9 @@ Herramienta interna: **no emite facturas ni tickets**.
 
 | Pestaña | Función |
 |---|---|
-| **Ingresos** | Hojas del talonario por foto (con IA gratuita) o a mano. Total, base, IVA, cremas y colonias del mes. Avisa de números de hoja sin registrar. Exporta el Excel del mes con el formato de Declarando |
-| **Gastos** | Facturas en PDF (se leen sin IA y sin coste) o en foto (con IA). Gastos sin factura: SS, modelos 115/130/303, letra de la máquina. Totales por categoría |
-| **Stock** | Catálogo, escáner de código de barras, pedido, historial. Las facturas de Germaine dan entrada en stock automáticamente |
+| **Ingresos** | Hojas del talonario por foto (con IA gratuita) o a mano, **con los productos vendidos** (descuentan stock en el mismo paso). Total, base, IVA, cremas y colonias del mes. Avisa de números de hoja sin registrar. Exporta el Excel del mes con el formato de Declarando |
+| **Gastos** | Facturas en PDF (se leen sin IA y sin coste) o en foto (con IA). Recibos de autónomos y pagos de modelos 115/130/303 del banco en PDF. Gastos sin factura a mano. Totales por categoría |
+| **Stock** | Catálogo, escáner de código de barras, pedido, historial. Las facturas de Germaine dan entrada en stock automáticamente y las hojas del talonario descuentan lo vendido |
 | **Resumen** | Resultado del mes y del año, gastos por categoría y exportación del Excel anual |
 | **Ajustes** | Clave de IA, NIF del negocio, próximo nº de Declarando, factor PVP y proveedores aprendidos |
 
@@ -60,6 +60,32 @@ Si el modelo deja de existir, en Ajustes → Modelo prueba `gemini-2.5-flash`.
 2. **Stock → Cargar catálogo inicial** (solo una vez).
 3. iPhone: Safari → Compartir → **Añadir a pantalla de inicio**.
 
+## Productos vendidos en la hoja del talonario
+Al dar de alta, revisar (foto) o editar una hoja hay una sección **Productos vendidos**:
+- **+ Producto**: busca por nombre, código de barras o referencia, o pulsa **📷 Escanear** (el mismo escáner de Stock).
+- Cada línea: producto, unidades (1 por defecto), precio por unidad **con IVA** (el PVP por defecto, se puede cambiar) y ✕ para quitarla. Si añades dos veces el mismo producto, se suman las unidades.
+- **Cremas** y **Colonias** se rellenan solas con la suma de las líneas: lo de **Yodeyma** va a Colonias y el resto a Cremas (mientras haya líneas, esos dos campos no se escriben a mano). Sin líneas, se escriben a mano como siempre.
+- Cremas + colonias no pueden superar el total de la hoja.
+- Para que una colonia cuente como colonia, dala de alta en Stock con proveedor **Yodeyma**.
+
+Al guardar:
+- La hoja guarda sus productos y, por cada línea, se registra una **venta** en el historial de stock con la referencia `Hoja Nº X`.
+- **Editar** la hoja deshace sus ventas anteriores y aplica las nuevas (solo se mueve la diferencia). **Eliminar** la hoja devuelve las unidades al stock.
+- Esas ventas **no se deshacen desde el Historial**: al tocarlas se abre la hoja para corregirla allí.
+- **− Venta** en la ficha del producto sigue disponible para ventas sueltas.
+
+Con foto y IA: si la IA lee las líneas de la hoja, propone el producto del catálogo más parecido como **sugerencia** («¿DUO COMFORT SKIN?») con botón **Añadir**. Nada se descuenta sin que lo confirmes.
+
+El Excel de Declarando no cambia: sigue usando el total de cada hoja y las cifras de cremas y colonias.
+
+## Facturas en PDF de proveedores
+- Se leen en el móvil sin IA: proveedor, NIF, nº, fecha, base, IVA, retención y total. Siempre hay pantalla de revisión antes de guardar.
+- Reconoce de serie a los proveedores habituales (empresas): Germaine de Capuccini, Yodeyma, The Beauty Corner (Postquam), Factoría Cosmética, Estética Directo, Yosemite (láser), O2, la luz, AXA, SumUp, Declarando, Ubeira, Alcampo, Mercadona, Leroy Merlin, IKEA y otros. Los particulares (por ejemplo, el casero) se aprenden al guardar su primera factura con «Recordar este proveedor».
+- Abonos (facturas rectificativas) en negativo; facturas con suplidos sin IVA; importes con 4 decimales (O2).
+- Cuando la factura trae «TOTAL FACTURA» y «TOTAL A PAGAR» distintos (Germaine con bonificaciones o pagos a cuenta), se toma el total de la factura (base + IVA) y se avisa del importe a pagar.
+- Justificantes del banco (ING): los **recibos de autónomos** y los **pagos de modelos 115/130/303** se registran como gasto sin factura con su importe, fecha y periodo. Los **adeudos y transferencias** que pagan una factura, los extractos y las declaraciones presentadas muestran un aviso ⚠ porque no son facturas (guardarlos contaría el gasto dos veces).
+- Probado con las 511 facturas en PDF del chat de facturas (2022-2026): en las 413 facturas, el total sale en el 94 % y base + IVA cuadran en el 92 %; los 19 recibos de autónomos y los 4 pagos de modelos salen completos.
+
 ## Consejos para las fotos del talonario
 - Una hoja por foto, de frente y con buena luz (la foto oscura o movida falla).
 - Que se vean el número rojo, la fecha y el total.
@@ -88,4 +114,4 @@ El archivo de copia guarda los datos dentro de `"datos"`, separados por nodos: `
 - Las facturas en PDF con texto se leen en el propio móvil, sin IA y sin enviar nada fuera.
 - Las fotos se envían a Google solo si hay clave de IA. Con usuarios del EEE, Google aplica a los datos el trato de los servicios de pago (no se usan para entrenar); compruébalo en las condiciones de la API de Gemini.
 - La app no guarda las fotos: conserva el talonario y las facturas originales.
-- Proveedores reconocidos de serie: Germaine, Yodeyma, O2, la luz, SumUp, Depilshop y Alcampo. El resto se aprende al guardar la primera factura.
+- Los proveedores no reconocidos de serie se aprenden al guardar la primera factura (Ajustes → Proveedores aprendidos).
