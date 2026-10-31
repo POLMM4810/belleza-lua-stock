@@ -1084,7 +1084,7 @@ $("gasFiles").onchange = async (e) => {
           item.datos = { proveedor: r.proveedor, nif: r.nif, numero: r.numero, fecha: r.fecha, base: r.base, tipoIva: r.tipoIva, iva: r.iva, retencion: r.retencion, total: r.total, categoria: r.categoria };
           item.nota = r.avisos.join(" · ");
           // Justificantes del banco y declaraciones: no son facturas (las de SS e impuestos sí son el comprobante del gasto)
-          if (r.tipoDoc && r.tipoDoc !== "factura") item.nota = "⚠ " + item.nota;
+          if (["justificante_pago", "declaracion", "extracto"].includes(r.tipoDoc)) item.nota = "⚠ " + item.nota;
           if (r.nif === "A03050572" && r.tipoDoc === "factura") item.lineas = Lector.lineasGdC(lineas).filter((l) => l.uvta + l.bnf !== 0);
           if (r.total == null && r.tipoDoc === "factura" && iaDisponible()) {
             const ri = await ia(promptGasto(), null, null, texto.slice(0, 15000));
