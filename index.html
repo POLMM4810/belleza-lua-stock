@@ -198,7 +198,12 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
     <div class="card"><b id="resAnioTit">Año</b><div class="tw" id="resTabla"></div></div>
     <div class="card"><b>Gastos por categoría (año)</b><div class="tw" id="resCats"></div></div>
     <div class="card"><b>Stock</b><div class="kpis" style="margin:10px 0 0" id="resStock"></div></div>
-    <button class="btn ghost full" id="resExport">Exportar Excel anual</button>
+    <div class="card">
+      <b>Excel anual</b>
+      <p class="muted" style="margin:4px 0 8px">Las cuentas del año explicadas y con gráficas: resumen, mes a mes, en qué se va el dinero y los años comparados. Elige el año con las flechas de arriba.</p>
+      <div class="muted" id="resHist" style="margin-bottom:8px"></div>
+      <button class="btn full" id="resExport">Actualizar Excel anual</button>
+    </div>
   </section>
 
   <!-- AJUSTES -->
@@ -222,6 +227,13 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
       <p class="muted" style="margin:4px 0 8px">Descarga todos los datos (ingresos, gastos, stock, movimientos y ajustes) en un archivo. Guárdalo en Archivos o iCloud. Recomendado: una vez al mes, después de sacar el Excel.</p>
       <div class="muted" id="bkInfo" style="margin-bottom:8px"></div>
       <button class="btn full" id="bkDown">Descargar copia</button>
+      <label class="btn ghost full filebtn" style="margin-top:8px">Restaurar una copia…<input type="file" id="bkFile" accept=".json,application/json"></label>
+    </div>
+    <div class="card">
+      <b>Histórico de años anteriores</b>
+      <p class="muted" style="margin:4px 0 8px">Los meses de antes de usar la app (de tu Excel antiguo) para el Excel anual y las comparaciones con años anteriores. Se carga una vez con el archivo <b>historico.json</b>.</p>
+      <div class="muted" id="histInfo" style="margin-bottom:8px"></div>
+      <label class="btn ghost full filebtn">Cargar histórico…<input type="file" id="histFile" accept=".json,application/json"></label>
     </div>
     <div class="card">
       <b>Proveedores aprendidos</b>
@@ -252,6 +264,7 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="lector.js"></script>
+<script src="excel_anual.js"></script>
 <script>
 "use strict";
 /* ====== PEGA AQUÍ LA CONFIGURACIÓN DE TU PROYECTO FIREBASE (belleza-lua-stock) ====== */
@@ -269,7 +282,6 @@ const FIREBASE_CONFIG = {
 const LIBS = {
   pdf: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
   pdfWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
-  xlsx: "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
   qr: "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
 };
 
@@ -291,7 +303,7 @@ const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const USOS = ["Venta", "Cabina", "Revisar (Miriam)", "No controlar"];
 const FILTERS = [["control", "Controlados"], ["low", "Bajo mínimo"], ["Venta", "Venta"], ["Cabina", "Cabina"], ["Revisar (Miriam)", "Revisar"], ["all", "Todo"]];
-const TIPOS = { entrada: "Entrada", venta: "Venta", cabina: "Cabina", ajuste: "Recuento" };
+const TIPOS = { entrada: "Entrada", venta: "Venta", cabina: "Cabina", ajuste: "Recuento", devolucion: "Devolución", separacion: "Separación" };
 const LIMITE_DECL = 400; // Factura simplificada en Declarando: cada factura debe quedar por debajo de 400 €
 
 const $ = (id) => document.getElementById(id);
@@ -308,6 +320,7 @@ const validISO = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || "") && !isNaN(dParse(s))
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const isLow = (p) => (p.min || 0) > 0 && (p.stock || 0) < p.min;
 const show = (id, on) => $(id).classList.toggle("hidden", !on);
+const pl = (n, uno, varios) => n + " " + (n === 1 ? uno : varios);
 const mesNombre = (ym) => `${MESES[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
 const comaNum = (n) => (n == null || n === "" ? "" : String(r2(n)).replace(".", ","));
 const norm = (s) => String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
@@ -369,6 +382,7 @@ function attach() {
     $("cfgNif").value = S.cfg.nif_propio || "";
     $("cfgDecl").value = S.cfg.declarando_sig || "";
     renderCopia();
+    renderHistorico();
     renderIng();
   });
   on("proveedores", (s) => { S.provs = s.val() || {}; renderProvs(); });
@@ -495,21 +509,82 @@ function renderCopia() {
   const t = S.cfg.ultima_copia;
   $("bkInfo").textContent = typeof t === "number" ? "Última copia: " + new Date(t).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) + (S.cfg.ultima_copia_por ? " (" + S.cfg.ultima_copia_por.split("@")[0] + ")" : "") : "Aún no se ha descargado ninguna copia.";
 }
+const NODOS_COPIA = ["ingresos", "gastos", "productos", "movimientos", "proveedores", "config"];
+async function hacerCopia(prefijo) {
+  const datos = {};
+  for (const n of NODOS_COPIA) datos[n] = (await db.ref(n).once("value")).val() || {};
+  delete datos.config.gemini_key; // la clave de IA no sale del sistema
+  const copia = { app: "belleza-lua", creada: new Date().toISOString(), por: S.user.email,
+    cuentas: { ingresos: Object.keys(datos.ingresos).length, gastos: Object.keys(datos.gastos).length, productos: Object.keys(datos.productos).length, movimientos: Object.keys(datos.movimientos).length },
+    datos };
+  const blob = new Blob([JSON.stringify(copia, null, 1)], { type: "application/json" });
+  busy();
+  await guardarBlob(blob, `${prefijo}_BELLEZA_LUA_${hoyISO()}.json`);
+}
 $("bkDown").onclick = async () => {
   busy("Preparando copia…");
   try {
-    const datos = {};
-    for (const n of ["ingresos", "gastos", "productos", "movimientos", "proveedores", "config"]) datos[n] = (await db.ref(n).once("value")).val() || {};
-    delete datos.config.gemini_key; // la clave de IA no sale del sistema
-    const copia = { app: "belleza-lua", creada: new Date().toISOString(), por: S.user.email,
-      cuentas: { ingresos: Object.keys(datos.ingresos).length, gastos: Object.keys(datos.gastos).length, productos: Object.keys(datos.productos).length, movimientos: Object.keys(datos.movimientos).length },
-      datos };
-    const blob = new Blob([JSON.stringify(copia, null, 1)], { type: "application/json" });
-    busy();
-    await guardarBlob(blob, `COPIA_BELLEZA_LUA_${hoyISO()}.json`);
+    await hacerCopia("COPIA");
     await db.ref("config").update({ ultima_copia: firebase.database.ServerValue.TIMESTAMP, ultima_copia_por: S.user.email });
     toast("Copia descargada");
   } catch (e) { console.error(e); busy(); toast("No se pudo hacer la copia: " + e.message); }
+};
+/* Restaurar una copia: sustituye todos los datos por los del archivo (antes descarga una copia de lo actual) */
+async function leerJSON(file) { try { return JSON.parse(await file.text()); } catch (e) { return null; } }
+$("bkFile").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const c = await leerJSON(f);
+  if (!c || c.app !== "belleza-lua" || !c.datos || typeof c.datos !== "object") return toast("Ese archivo no es una copia de Belleza Lua");
+  for (const n of NODOS_COPIA) { const v = c.datos[n]; if (v != null && (typeof v !== "object" || Array.isArray(v))) return toast("La copia está dañada (" + n + ")"); }
+  const cuenta = (o) => Object.keys(o || {}).length;
+  const filas = [["Hojas del talonario", "ingresos", S.ingresos], ["Gastos", "gastos", S.gastos], ["Productos", "productos", S.prods], ["Proveedores aprendidos", "proveedores", S.provs]];
+  const cuando = c.creada ? new Date(c.creada).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "fecha desconocida";
+  sheet(`<h2>Restaurar copia</h2>
+    <div class="muted">Copia del ${esc(cuando)}${c.por ? " · " + esc(String(c.por).split("@")[0]) : ""}</div>
+    <div class="card warn" style="margin-top:10px">Se sustituyen <b>todos</b> los datos de la app (hojas, gastos, stock, movimientos, proveedores y ajustes) por los de la copia. Lo apuntado después de esa fecha se pierde. Antes se descarga una copia de lo que hay ahora, por si acaso.</div>
+    <table class="t"><tr><th></th><th>En la copia</th><th>Ahora</th></tr>
+    ${filas.map(([l, n, act]) => `<tr><td>${l}</td><td>${cuenta(c.datos[n])}</td><td>${cuenta(act)}</td></tr>`).join("")}</table>
+    <button class="btn bad full" style="margin-top:16px" id="rOk">Restaurar esta copia</button>
+    <button class="btn ghost full" style="margin-top:8px" id="rBack">Cancelar</button>`);
+  $("rBack").onclick = closeSheet;
+  $("rOk").onclick = async () => {
+    if (!confirm("¿Seguro? Se sustituyen todos los datos actuales por los de la copia.")) return;
+    $("rOk").disabled = true;
+    try {
+      busy("Guardando una copia de lo actual…");
+      await hacerCopia("ANTES_DE_RESTAURAR");
+      busy("Restaurando…");
+      const cfg = Object.assign({}, c.datos.config || {});
+      if (S.cfg.gemini_key) cfg.gemini_key = S.cfg.gemini_key; // la clave de IA no viaja en la copia
+      if (!cfg.gemini_model && S.cfg.gemini_model) cfg.gemini_model = S.cfg.gemini_model;
+      cfg.restaurada = { ts: firebase.database.ServerValue.TIMESTAMP, copia: c.creada || null, por: S.user.email };
+      const upd = {};
+      NODOS_COPIA.forEach((n) => { upd[n] = n === "config" ? cfg : (cuenta(c.datos[n]) ? c.datos[n] : null); });
+      await db.ref().update(upd);
+      busy(); closeSheet(); toast("Copia restaurada");
+    } catch (err) { console.error(err); busy(); toast("No se pudo restaurar: " + err.message); $("rOk").disabled = false; }
+  };
+};
+/* Histórico de años anteriores (Excel antiguo) para el Excel anual */
+const MES_TXT = (ym) => mesNombre(ym).toLowerCase();
+function renderHistorico() {
+  const H = S.cfg.historico;
+  const txt = H && H.anios ? `Histórico cargado: ${Object.keys(H.anios).sort().join(", ")} (tu Excel antiguo hasta antes de ${MES_TXT(H.desde)}; desde ${MES_TXT(H.desde)}, la app).`
+    : "Sin histórico cargado: el Excel anual solo tendrá lo apuntado en la app.";
+  if ($("histInfo")) $("histInfo").textContent = txt;
+  if ($("resHist")) $("resHist").textContent = txt;
+}
+const claveFB = (k) => String(k).replace(/[.#$\[\]\/]/g, " ").trim();
+$("histFile").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const H = await leerJSON(f);
+  if (!H || H.app !== "belleza-lua-historico" || !H.anios || typeof H.anios !== "object" || !/^\d{4}-\d{2}$/.test(H.desde || "")) return toast("Ese archivo no es un histórico de Belleza Lua");
+  // Nombres de categoría válidos como claves de Firebase
+  Object.values(H.anios).forEach((a) => ["cat", "cat_anual"].forEach((k) => { if (a[k]) { const o = {}; Object.keys(a[k]).forEach((c) => { o[claveFB(c)] = a[k][c]; }); a[k] = o; } }));
+  const anios = Object.keys(H.anios).sort();
+  if (!confirm(`Cargar el histórico de ${anios.join(", ")}?\nLa app empieza a contar desde ${MES_TXT(H.desde)}. Sustituye al histórico cargado antes.`)) return;
+  try { await db.ref("config/historico").set(H); toast("Histórico cargado"); }
+  catch (err) { console.error(err); toast("No se pudo cargar: " + err.message); }
 };
 
 /* =====================================================================
@@ -971,7 +1046,7 @@ function formGasto(d, titulo, ctx) {
     <label>Total pagado</label><input id="gTotal" inputmode="decimal" value="${d.total == null ? "" : String(d.total).replace(".", ",")}" style="font-size:22px;font-weight:700">
     <div class="muted" id="gCheck" style="margin-top:6px"></div>
     <label class="chk"><input type="checkbox" id="gRec" ${d.nif ? "checked" : ""}>Recordar este proveedor y su categoría</label>
-    ${lineas.length ? `<label class="chk"><input type="checkbox" id="gStock" checked>Dar entrada en stock: ${lineas.length} líneas${nuevos ? ` (${nuevos} productos nuevos)` : ""}</label>` : ""}`;
+    ${lineas.length ? `<label class="chk"><input type="checkbox" id="gStock" checked>Dar entrada en stock: ${pl(lineas.length, "línea", "líneas")}${nuevos ? ` (${pl(nuevos, "producto nuevo", "productos nuevos")})` : ""}</label>` : ""}`;
 }
 function enlazarCheck() {
   const f = () => {
@@ -1016,7 +1091,7 @@ async function guardarGasto(id, d, ctx) {
   if (ctx && ctx.lineas && ctx.lineas.length && $("gStock") && $("gStock").checked) {
     const n = await aplicarStock(ctx.lineas, `${d.proveedor || ""} ${d.numero || ""}`.trim());
     await db.ref("gastos/" + key + "/stock").set(true);
-    toast(`Stock actualizado: ${n} productos`);
+    toast(`Stock actualizado: ${pl(n, "producto", "productos")}`);
   }
   return true;
 }
@@ -1172,7 +1247,7 @@ async function aplicarStock(lineas, ref) {
     }
     await db.ref("productos/" + id + "/stock").transaction((cur) => (cur || 0) + uds);
     if (l.uvta > 0) await db.ref("productos/" + id + "/coste").set(coste);
-    await db.ref("movimientos").push({ ts: firebase.database.ServerValue.TIMESTAMP, pid: id, desc: l.desc, tipo: "entrada", uds: l.uvta || 0, bnf: l.bnf || 0, delta: uds, coste, precio: coste, email: S.user.email, ref: ref || "" });
+    await db.ref("movimientos").push({ ts: firebase.database.ServerValue.TIMESTAMP, pid: id, desc: l.desc, tipo: uds < 0 ? "devolucion" : "entrada", uds: l.uvta || 0, bnf: l.bnf || 0, delta: uds, coste, precio: coste, email: S.user.email, ref: ref || "" });
     n++;
   }
   return n;
@@ -1273,11 +1348,58 @@ function openProduct(id) {
       <button class="btn ghost" data-a="ajuste">Recuento</button>
     </div>
     ${last.length ? `<div class="muted" style="margin:6px 0">Últimos movimientos</div><div class="list">${last.map((m) => `<div class="item"><div class="t"><div class="m">${fechaHora(m.ts)} · ${esc(TIPOS[m.tipo])}</div></div><div class="badge">${m.delta > 0 ? "+" : ""}${m.delta}</div></div>`).join("")}</div>` : ""}
+    ${p.prov === "Yodeyma" && !p.padre ? `<button class="btn sec full" style="margin-top:12px" id="pSep">Separar por fragancia</button>` : ""}
+    ${p.padre && S.prods[p.padre] ? `<div class="muted" style="margin-top:8px">Fragancia separada de: ${esc(S.prods[p.padre].desc)}</div>` : ""}
     <button class="btn ghost full" style="margin-top:12px" id="pEdit">Editar datos del producto</button>
     <button class="btn ghost full" style="margin-top:8px" id="pClose">Cerrar</button>`);
   $("sheetRoot").querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => openMove(id, b.dataset.a)));
+  if ($("pSep")) $("pSep").onclick = () => separarFragancia(id);
   $("pEdit").onclick = () => editProduct(id);
   $("pClose").onclick = closeSheet;
+}
+
+/* Las facturas de Yodeyma no dicen la fragancia: todo entra en el tipo (p. ej. POUR FEMME 100 ML).
+   Aquí se pasan unidades a una ficha por fragancia, que suma en Colonias igual. */
+const slugFr = (s) => norm(s).replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+function separarFragancia(id) {
+  const p = S.prods[id]; if (!p) return;
+  const hijas = Object.entries(S.prods).filter(([, x]) => x.padre === id);
+  sheet(`<h2>Separar por fragancia</h2>
+    <div class="muted">${esc(p.desc)} · ${p.stock || 0} en stock</div>
+    <p class="muted">La factura de Yodeyma no dice la fragancia, así que todo entra aquí. Pasa unidades a su fragancia para llevar el stock de cada una.</p>
+    <label>Fragancia</label><input id="fNom" list="fDl" placeholder="Nombre de la fragancia" autocomplete="off">
+    <datalist id="fDl">${hijas.map(([, x]) => `<option value="${esc(x.fragancia || "")}">`).join("")}</datalist>
+    <label>Unidades que pasan a esa fragancia</label><input id="fUds" type="number" inputmode="numeric" value="1" style="text-align:center;font-size:20px">
+    ${hijas.length ? `<div class="muted" style="margin-top:8px">Ya separadas: ${hijas.map(([, x]) => esc(x.fragancia || x.desc) + " (" + (x.stock || 0) + ")").join(", ")}</div>` : ""}
+    <button class="btn full" style="margin-top:16px" id="fOk">Separar</button>
+    <button class="btn ghost full" style="margin-top:8px" id="fBack">Volver</button>`);
+  $("fBack").onclick = () => openProduct(id);
+  $("fOk").onclick = async () => {
+    const nom = $("fNom").value.trim().toUpperCase(), uds = int($("fUds").value);
+    const act = S.prods[id] || p;
+    if (!nom || !slugFr(nom)) return toast("Escribe la fragancia");
+    if (!(uds >= 1)) return toast("Indica las unidades");
+    if (uds > (act.stock || 0)) return toast(`Solo hay ${act.stock || 0} en stock`);
+    const hid = (id + "-" + slugFr(nom)).slice(0, 120);
+    $("fOk").disabled = true;
+    try {
+      if (!S.prods[hid]) {
+        const nuevo = { ean: "", cod: hid, desc: act.desc + " · " + nom, prov: act.prov, cat: act.cat || "Colonia", uso: "Venta",
+          coste: act.coste != null ? act.coste : null, pvp: act.pvp != null ? act.pvp : null, min: 0, stock: 0, padre: id, fragancia: nom };
+        await db.ref("productos/" + hid).set(nuevo); S.prods[hid] = nuevo;
+      }
+      await db.ref("productos/" + id + "/stock").transaction((c) => (c || 0) - uds);
+      await db.ref("productos/" + hid + "/stock").transaction((c) => (c || 0) + uds);
+      const grupo = db.ref("movimientos").push().key, TS = firebase.database.ServerValue.TIMESTAMP;
+      const base = { ts: TS, tipo: "separacion", uds, bnf: 0, coste: act.coste != null ? act.coste : null, precio: null, email: S.user.email, grupo };
+      const upd = {};
+      upd["movimientos/" + db.ref("movimientos").push().key] = Object.assign({}, base, { pid: id, desc: act.desc, delta: -uds, ref: "→ " + nom });
+      upd["movimientos/" + db.ref("movimientos").push().key] = Object.assign({}, base, { pid: hid, desc: S.prods[hid].desc, delta: uds, ref: "← " + act.desc });
+      await db.ref().update(upd);
+      toast(`${pl(uds, "unidad", "unidades")} a ${nom}`);
+      openProduct(hid);
+    } catch (e) { console.error(e); toast("Error al separar"); $("fOk").disabled = false; }
+  };
 }
 
 function openMove(id, tipo) {
@@ -1336,6 +1458,16 @@ async function undoMove(mid) {
     return editIngreso(m.ing);
   }
   if (!sameDay(m.ts, Date.now())) return toast("Solo se deshacen movimientos de hoy");
+  if (m.tipo === "separacion" && m.grupo) { // se deshacen las dos mitades a la vez
+    const par = S.movs.filter((x) => x.grupo === m.grupo);
+    if (!confirm(`¿Deshacer la separación de ${pl(Math.abs(m.delta), "unidad", "unidades")} (${m.ref || ""})?`)) return;
+    try {
+      for (const x of par) { if (S.prods[x.pid]) await db.ref("productos/" + x.pid + "/stock").transaction((cur) => (cur || 0) - x.delta); }
+      const upd = {}; par.forEach((x) => { upd["movimientos/" + x.id] = null; }); await db.ref().update(upd);
+      toast("Separación deshecha");
+    } catch (e) { console.error(e); toast("No se pudo deshacer"); }
+    return;
+  }
   if (!confirm(`¿Deshacer "${TIPOS[m.tipo]}" de ${m.desc} (${m.delta > 0 ? "+" : ""}${m.delta})?`)) return;
   try {
     if (S.prods[m.pid]) await db.ref("productos/" + m.pid + "/stock").transaction((cur) => (cur || 0) - m.delta);
@@ -1489,19 +1621,6 @@ async function guardarBlob(blob, nombre) {
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 const TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-async function guardarArchivo(wb, nombre) {
-  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  return guardarBlob(new Blob([buf], { type: TIPO_XLSX }), nombre);
-}
-function formatear(ws, colsFecha, colsEur) {
-  const rg = XLSX.utils.decode_range(ws["!ref"]);
-  for (let R = rg.s.r; R <= rg.e.r; R++) for (let C = rg.s.c; C <= rg.e.c; C++) {
-    const c = ws[XLSX.utils.encode_cell({ r: R, c: C })]; if (!c) continue;
-    if (c.t === "d" || (c.t === "n" && colsFecha.includes(C) && R > rg.s.r)) c.z = "dd/mm/yyyy";
-    else if (c.t === "n" && colsEur.includes(C)) c.z = "#,##0.00";
-  }
-}
-const fechaCelda = (iso) => (Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 864e5; // nº de serie de Excel: fecha sin hora
 function partesDecl(s) { const m = String(s || "").match(/^(.*?)(\d+)$/); return m ? { pre: m[1], n: +m[2], w: m[2].length } : null; }
 const fmtDecl = (p, n) => p.pre + String(n).padStart(p.w, "0");
 
@@ -1644,7 +1763,7 @@ $("ingExport").onclick = () => {
   const prop = guardado || S.cfg.declarando_sig || (ym.slice(0, 4) + "-00001");
   const nG = gruposDeclarando(ingDelMes(ym).map(([, x]) => x)).length;
   sheet(`<h2>Excel de ${esc(mesNombre(ym))}</h2>
-    <p class="muted">Se generan ${nG} facturas para Declarando (una por día; si un día llega a ${LIMITE_DECL} €, se divide en facturas de menos de ${LIMITE_DECL} €).</p>
+    <p class="muted">Se generan ${pl(nG, "factura", "facturas")} para Declarando (una por día; si un día llega a ${LIMITE_DECL} €, se divide en facturas de menos de ${LIMITE_DECL} €).</p>
     <label>Primer nº de factura en Declarando</label><input id="xDecl" value="${esc(prop)}">
     <div class="muted" id="xRango" style="margin-top:6px"></div>
     <button class="btn full" style="margin-top:16px" id="xOk">Generar Excel</button>
@@ -1682,39 +1801,16 @@ $("ingExport").onclick = () => {
   };
 };
 
-function libroAnio(y) {
-  const meses = datosAnio(y);
-  const a1 = [["Mes", "Hojas", "Ingresos (IVA incl.)", "Base", "IVA", "Cremas", "Colonias", "Gastos", "Resultado"]];
-  meses.forEach((m, i) => a1.push([MESES[i], m.ing.hojas, m.ing.total, m.ing.base, m.ing.iva, m.ing.cremas, m.ing.colonias, m.gastos, m.resultado]));
-  const sum = (k) => r2(meses.reduce((s, m) => s + k(m), 0));
-  a1.push(["TOTAL", sum((m) => m.ing.hojas), sum((m) => m.ing.total), sum((m) => m.ing.base), sum((m) => m.ing.iva), sum((m) => m.ing.cremas), sum((m) => m.ing.colonias), sum((m) => m.gastos), sum((m) => m.resultado)]);
-  const ws1 = XLSX.utils.aoa_to_sheet(a1); ws1["!cols"] = [{ wch: 12 }, { wch: 7 }, { wch: 18 }, { wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 11 }, { wch: 12 }, { wch: 12 }];
-  formatear(ws1, [], [2, 3, 4, 5, 6, 7, 8]);
-  const a2 = [["Categoría"].concat(MESES.map((m) => m.slice(0, 3)), ["Total"])];
-  CATS.forEach((c) => a2.push([c].concat(meses.map((m) => m.cats[c] || 0), [sum((m) => m.cats[c] || 0)])));
-  a2.push(["TOTAL"].concat(meses.map((m) => m.gastos), [sum((m) => m.gastos)]));
-  const ws2 = XLSX.utils.aoa_to_sheet(a2); ws2["!cols"] = [{ wch: 20 }].concat(new Array(13).fill({ wch: 10 }));
-  formatear(ws2, [], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
-  const a3 = [["Fecha", "Nº hoja", "Total", "Cremas", "Colonias"]];
-  Object.values(S.ingresos).filter((x) => (x.fecha || "").startsWith(y)).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.num - b.num)
-    .forEach((x) => a3.push([fechaCelda(x.fecha), x.num, x.total, x.cremas || 0, x.colonias || 0]));
-  const ws3 = XLSX.utils.aoa_to_sheet(a3); formatear(ws3, [0], [2, 3, 4]);
-  const a4 = [["Fecha", "Proveedor", "NIF", "Nº factura", "Categoría", "Base", "% IVA", "Cuota IVA", "Retención", "Total"]];
-  Object.values(S.gastos).filter((x) => (x.fecha || "").startsWith(y)).sort((a, b) => a.fecha.localeCompare(b.fecha))
-    .forEach((x) => a4.push([fechaCelda(x.fecha), x.proveedor || "", x.nif || "", x.numero || "", x.categoria, x.base, x.tipoIva, x.iva, x.retencion || 0, x.total]));
-  const ws4 = XLSX.utils.aoa_to_sheet(a4); formatear(ws4, [0], [5, 7, 8, 9]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws1, "RESUMEN " + y);
-  XLSX.utils.book_append_sheet(wb, ws2, "GASTOS POR CATEGORÍA");
-  XLSX.utils.book_append_sheet(wb, ws3, "INGRESOS DETALLE");
-  XLSX.utils.book_append_sheet(wb, ws4, "GASTOS DETALLE");
-  return wb;
-}
+/* Excel anual: histórico (Excel antiguo) + lo apuntado en la app, explicado y con gráficas (excel_anual.js) */
 $("resExport").onclick = async () => {
-  const y = S.mes.slice(0, 4);
-  busy("Preparando Excel…");
-  try { await cargar(LIBS.xlsx); const wb = libroAnio(y); busy(); await guardarArchivo(wb, `RESUMEN_${y}_BELLEZA_LUA.xlsx`); }
-  catch (e) { console.error(e); busy(); toast("Error al generar el Excel"); }
+  const y = +S.mes.slice(0, 4);
+  busy("Preparando el Excel anual…");
+  try {
+    const r = ExcelAnual.build({ hist: S.cfg.historico || null, ingresos: Object.values(S.ingresos), gastos: Object.values(S.gastos),
+      year: y, nowKey: hoyISO().slice(0, 7), generado: new Date().toLocaleDateString("es-ES") });
+    busy();
+    await guardarBlob(new Blob([r.bytes], { type: TIPO_XLSX }), `Belleza_Lua_Anual_${y}.xlsx`);
+  } catch (e) { console.error(e); busy(); toast("Error al generar el Excel anual: " + e.message); }
 };
 </script>
 </body>
