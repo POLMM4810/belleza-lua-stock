@@ -67,7 +67,7 @@ Al dar de alta, revisar (foto) o editar una hoja hay una sección **Productos ve
 - **Cremas** y **Colonias** se rellenan solas con la suma de las líneas: lo de **Yodeyma** va a Colonias y el resto a Cremas (mientras haya líneas, esos dos campos no se escriben a mano). Sin líneas, se escriben a mano como siempre.
 - Cremas + colonias no pueden superar el total de la hoja.
 - Para que una colonia cuente como colonia, tiene que tener el proveedor **Yodeyma** (las que se dan de alta solas desde la factura ya lo tienen).
-- Si un producto se quedaría sin stock (o en negativo), avisa al guardar: «X tiene 0 en stock; ¿guardar igualmente?». Lo mismo con **− Venta** y **− Cabina** en la ficha del producto.
+- Si vendes más unidades de las que hay en stock (el stock quedaría en negativo), avisa al guardar: «X tiene 0 en stock; ¿guardar igualmente?». Lo mismo con **− Venta** y **− Cabina** en la ficha del producto.
 
 Al guardar:
 - La hoja guarda sus productos y, por cada línea, se registra una **venta** en el historial de stock con la referencia `Hoja Nº X`.
