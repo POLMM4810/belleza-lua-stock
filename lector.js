@@ -382,7 +382,26 @@
     return out;
   }
 
-  const api = { PROVEEDORES, numero, importes, fechas, nifs, lineasPdf, leerFactura, leerJustificante, lineasGdC, cuadrar };
+  /* Líneas de colonias de una factura de Yodeyma: "4,00 EAU TOILET. POUR FEMME 100 ML   13,99   55,96".
+     No traen código de barras ni referencia: se identifican por la descripción. Las de 0 € (probadores,
+     expositores, kits promocionales) no son producto para vender y se ignoran. */
+  function lineasYodeyma(lineas) {
+    const out = [];
+    const re = /^\s*(\d{1,4},\d{2})\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/;
+    lineas.forEach((l) => {
+      const m = l.match(re);
+      if (!m) return;
+      const uds = numero(m[1]), precio = numero(m[3]), imp = numero(m[4]);
+      const desc = m[2].replace(/(\s+-?\d{1,3}(?:\.\d{3})*,\d{2})+\s*$/, "").replace(/\s+/g, " ").trim().toUpperCase();
+      if (!desc || !(precio > 0) || !(uds > 0) || uds % 1) return;
+      const cod = "YOD-" + desc.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+      const gratis = imp === 0; // regalada (precio con descuento total): entra como bonificada
+      out.push({ ean: "", cod, desc, uvta: gratis ? 0 : uds, bnf: gratis ? uds : 0, precio, dto: 0, importe: imp, ok: gratis || Math.abs(uds * precio - imp) < 0.06, prov: "Yodeyma", cat: "Colonia" });
+    });
+    return out;
+  }
+
+  const api = { PROVEEDORES, lineasYodeyma, numero, importes, fechas, nifs, lineasPdf, leerFactura, leerJustificante, lineasGdC, cuadrar };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Lector = api;
 })(typeof window !== "undefined" ? window : globalThis);

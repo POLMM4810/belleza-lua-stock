@@ -9,7 +9,7 @@ Herramienta interna: **no emite facturas ni tickets**.
 |---|---|
 | **Ingresos** | Hojas del talonario por foto (con IA gratuita) o a mano, **con los productos vendidos** (descuentan stock en el mismo paso). Total, base, IVA, cremas y colonias del mes. Avisa de números de hoja sin registrar. Exporta el Excel del mes con el formato de Declarando |
 | **Gastos** | Facturas en PDF (se leen sin IA y sin coste) o en foto (con IA). Recibos de autónomos y pagos de modelos 115/130/303 del banco en PDF. Gastos sin factura a mano. Totales por categoría |
-| **Stock** | Catálogo, escáner de código de barras, pedido, historial. Las facturas de Germaine dan entrada en stock automáticamente y las hojas del talonario descuentan lo vendido |
+| **Stock** | Catálogo, escáner de código de barras, pedido, historial. Las facturas de Germaine y de Yodeyma dan entrada en stock automáticamente y las hojas del talonario descuentan lo vendido |
 | **Resumen** | Resultado del mes y del año, gastos por categoría y exportación del Excel anual |
 | **Ajustes** | Clave de IA, NIF del negocio, próximo nº de Declarando, factor PVP y proveedores aprendidos |
 
@@ -66,7 +66,8 @@ Al dar de alta, revisar (foto) o editar una hoja hay una sección **Productos ve
 - Cada línea: producto, unidades (1 por defecto), precio por unidad **con IVA** (el PVP por defecto, se puede cambiar) y ✕ para quitarla. Si añades dos veces el mismo producto, se suman las unidades.
 - **Cremas** y **Colonias** se rellenan solas con la suma de las líneas: lo de **Yodeyma** va a Colonias y el resto a Cremas (mientras haya líneas, esos dos campos no se escriben a mano). Sin líneas, se escriben a mano como siempre.
 - Cremas + colonias no pueden superar el total de la hoja.
-- Para que una colonia cuente como colonia, dala de alta en Stock con proveedor **Yodeyma**.
+- Para que una colonia cuente como colonia, tiene que tener el proveedor **Yodeyma** (las que se dan de alta solas desde la factura ya lo tienen).
+- Si un producto se quedaría sin stock (o en negativo), avisa al guardar: «X tiene 0 en stock; ¿guardar igualmente?». Lo mismo con **− Venta** y **− Cabina** en la ficha del producto.
 
 Al guardar:
 - La hoja guarda sus productos y, por cada línea, se registra una **venta** en el historial de stock con la referencia `Hoja Nº X`.
@@ -77,6 +78,13 @@ Al guardar:
 Con foto y IA: si la IA lee las líneas de la hoja, propone el producto del catálogo más parecido como **sugerencia** («¿DUO COMFORT SKIN?») con botón **Añadir**. Nada se descuenta sin que lo confirmes.
 
 El Excel de Declarando no cambia: sigue usando el total de cada hoja y las cifras de cremas y colonias.
+
+## Facturas de Yodeyma: colonias en stock
+Al subir el PDF de una factura de Yodeyma, la pantalla de revisión ofrece **Dar entrada en stock** (igual que con Germaine):
+- Cada colonia de la factura que no exista se da de alta sola: proveedor Yodeyma, uso Venta, coste = precio de la factura sin IVA y PVP = coste × factor PVP (Ajustes). Si ya existe, suma unidades y actualiza el coste.
+- Las facturas de Yodeyma no traen código de barras ni referencia: la colonia se reconoce por su descripción («EAU TOILET. POUR FEMME 100 ML»). Por eso el stock va **por tipo y tamaño**, no por fragancia.
+- Las líneas a 0 € (probadores, expositores, kits promocionales) no entran en stock. Un producto regalado (precio con descuento total) entra como bonificado.
+- Para usar el escáner con una colonia: en Stock, abre la colonia → Editar datos del producto → escribe su código de barras.
 
 ## Facturas en PDF de proveedores
 - Se leen en el móvil sin IA: proveedor, NIF, nº, fecha, base, IVA, retención y total. Siempre hay pantalla de revisión antes de guardar.

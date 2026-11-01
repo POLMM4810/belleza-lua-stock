@@ -800,6 +800,10 @@ async function guardarIngreso(id, d, origen) {
     if (l.col) o.col = true;
     return o;
   });
+  // Aviso si algún producto se quedaría sin stock (o en negativo)
+  const faltan = Object.keys(deltas).filter((pid) => deltas[pid] < 0 && S.prods[pid] && (S.prods[pid].stock || 0) + deltas[pid] < 0)
+    .map((pid) => `${S.prods[pid].desc} tiene ${S.prods[pid].stock || 0} en stock`);
+  if (faltan.length && !confirm(faltan.join("\n") + "\n\n¿Guardar igualmente? El stock quedará en negativo hasta que hagas un recuento.")) return false;
   const data = Object.assign({}, d, { productos: productos.length ? productos : null, origen: origen || "manual", email: S.user.email, ts: TS });
   if (id) Object.keys(data).forEach((k) => { upd["ingresos/" + key + "/" + k] = data[k] === undefined ? null : data[k]; });
   else upd["ingresos/" + key] = data;
@@ -951,7 +955,7 @@ function renderGas() {
 
 function formGasto(d, titulo, ctx) {
   const lineas = (ctx && ctx.lineas) || [];
-  const nuevos = lineas.filter((l) => !buscarEan(l.ean)).length;
+  const nuevos = lineas.filter((l) => !buscarLinea(l)).length;
   return `<h2>${esc(titulo)}</h2>
     ${ctx && ctx.nombre ? `<div class="muted">${esc(ctx.nombre)}</div>` : ""}
     ${ctx && ctx.foto ? `<img class="foto" src="${ctx.foto}" alt="Factura">` : ""}
@@ -1086,6 +1090,7 @@ $("gasFiles").onchange = async (e) => {
           // Justificantes del banco y declaraciones: no son facturas (las de SS e impuestos sí son el comprobante del gasto)
           if (["justificante_pago", "declaracion", "extracto"].includes(r.tipoDoc)) item.nota = "⚠ " + item.nota;
           if (r.nif === "A03050572" && r.tipoDoc === "factura") item.lineas = Lector.lineasGdC(lineas).filter((l) => l.uvta + l.bnf !== 0);
+          if (r.nif === "B45441953" && r.tipoDoc === "factura") item.lineas = Lector.lineasYodeyma(lineas);
           if (r.total == null && r.tipoDoc === "factura" && iaDisponible()) {
             const ri = await ia(promptGasto(), null, null, texto.slice(0, 15000));
             item.datos = Object.assign(datosIA(ri), { categoria: item.datos.categoria });
@@ -1144,17 +1149,26 @@ function buscarEan(code) {
   if (!code) return null;
   return Object.keys(S.prods).find((k) => S.prods[k].ean === code) || null;
 }
+/* Producto del catálogo para una línea de factura: por código de barras (Germaine) o por referencia (Yodeyma) */
+function buscarLinea(l) {
+  const id = buscarEan(l.ean);
+  if (id || !l.cod) return id;
+  return Object.keys(S.prods).find((k) => k === l.cod || S.prods[k].cod === l.cod) || null;
+}
 async function aplicarStock(lineas, ref) {
   let n = 0;
   for (const l of lineas) {
     const uds = (l.uvta || 0) + (l.bnf || 0);
     if (!uds) continue;
     const coste = r2(l.precio * (1 - (l.dto || 0) / 100));
-    let id = buscarEan(l.ean);
+    let id = buscarLinea(l);
     if (!id) {
-      id = l.ean;
-      await db.ref("productos/" + id).set({ ean: l.ean, cod: l.cod || "", desc: l.desc, prov: "Germaine de Capuccini", cat: "Producto (venta o cabina)", uso: "Revisar (Miriam)", coste, pvp: r2(coste * S.factor), min: 0, stock: 0 });
-      S.prods[id] = { ean: l.ean, desc: l.desc, coste };
+      id = l.ean || l.cod;
+      if (!id) continue;
+      const prov = l.prov || "Germaine de Capuccini";
+      const nuevo = { ean: l.ean || "", cod: l.cod || "", desc: l.desc, prov, cat: l.cat || "Producto (venta o cabina)", uso: prov === "Yodeyma" ? "Venta" : "Revisar (Miriam)", coste, pvp: r2(coste * S.factor), min: 0, stock: 0 };
+      await db.ref("productos/" + id).set(nuevo);
+      S.prods[id] = nuevo;
     }
     await db.ref("productos/" + id + "/stock").transaction((cur) => (cur || 0) + uds);
     if (l.uvta > 0) await db.ref("productos/" + id + "/coste").set(coste);
@@ -1291,6 +1305,8 @@ function openMove(id, tipo) {
     const precio = $("mPrecio") ? num($("mPrecio").value) : null;
     if (tipo !== "ajuste" && uds <= 0 && bnf <= 0) return toast("Indica las unidades");
     if (tipo === "ajuste" && uds < 0) return toast("El recuento no puede ser negativo");
+    const act = S.prods[id] || p; // stock al momento de guardar
+    if ((tipo === "venta" || tipo === "cabina") && (act.stock || 0) - uds < 0 && !confirm(`${act.desc} tiene ${act.stock || 0} en stock; ¿guardar igualmente?`)) return;
     $("mOk").disabled = true;
     try { await registrar(id, tipo, uds, bnf, precio); toast("Guardado"); openProduct(id); }
     catch (e) { console.error(e); toast("Error al guardar"); $("mOk").disabled = false; }
