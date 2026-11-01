@@ -69,6 +69,11 @@ table.t tr.tot td{font-weight:700;border-top:2px solid var(--line)}
 nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:6}
 nav button{flex:1;border:0;background:none;padding:9px 0 8px;font-size:11px;color:var(--muted)}
 nav button .i{display:block;font-size:20px;line-height:1.2}
+/* Modo sencillo (móvil del centro): solo Ingresos y Stock del día a día */
+body.sencillo nav button[data-tab="tGas"],body.sencillo nav button[data-tab="tRes"],body.sencillo nav button[data-tab="tAju"],
+body.sencillo #ingExport,body.sencillo #newBtn,body.sencillo #stockSeg button[data-v="pedido"],body.sencillo #initBox,
+body.sencillo #pEdit,body.sencillo #pSep{display:none!important}
+#salirSencillo{display:none}body.sencillo #salirSencillo{display:block}
 nav button.on{color:var(--brand);font-weight:700}
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--bg);width:100%;max-width:720px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
@@ -144,6 +149,7 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
     <div id="ingAviso"></div>
     <div id="ingList"></div>
     <button class="btn ghost full" id="ingExport">Exportar Excel del mes (Declarando)</button>
+    <button class="btn ghost full" id="salirSencillo" style="margin-top:24px;font-size:13px">Ver todas las opciones (Paulo)</button>
   </section>
 
   <!-- GASTOS -->
@@ -208,6 +214,11 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
 
   <!-- AJUSTES -->
   <section id="tAju" class="hidden">
+    <div class="card">
+      <b>Modo sencillo en este móvil</b>
+      <p class="muted" style="margin:4px 0 8px">Para el móvil del centro: deja solo <b>Ingresos</b> y <b>Stock</b>, sin facturas, Excel ni ajustes. Se quita desde Ingresos → «Ver todas las opciones» (abajo del todo).</p>
+      <button class="btn sec full" id="modoSencillo">Activar modo sencillo en este móvil</button>
+    </div>
     <div class="card">
       <b>Lectura de fotos con IA (gratis)</b>
       <p class="muted" style="margin:4px 0 8px">Clave de Google AI Studio (Gemini, nivel gratuito). Sin clave, la app funciona igual: las facturas en PDF se leen sin IA y las fotos se pasan a mano.</p>
@@ -394,7 +405,19 @@ function detach() { S.listeners.forEach((r) => r.off()); S.listeners = []; S.pro
 /* ---------- NAVEGACIÓN ---------- */
 const TITULOS = { tIng: "Ingresos", tGas: "Gastos", tStock: "Stock", tRes: "Resumen", tAju: "Ajustes" };
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => goTab(b.dataset.tab)));
+/* Modo sencillo: se guarda en este móvil (no en la base de datos) */
+function esSencillo() { return document.body.classList.contains("sencillo"); }
+function ponerSencillo(on) {
+  try { if (on) localStorage.setItem("bl_sencillo", "1"); else localStorage.removeItem("bl_sencillo"); } catch (e) {}
+  document.body.classList.toggle("sencillo", on);
+  if (on && !["tIng", "tStock"].includes(S.tab)) goTab("tIng");
+  if (S.user) renderIng();
+}
+try { if (localStorage.getItem("bl_sencillo") === "1") document.body.classList.add("sencillo"); } catch (e) {}
+$("modoSencillo").onclick = () => { if (confirm("¿Dejar este móvil en modo sencillo (solo Ingresos y Stock)?")) { ponerSencillo(true); toast("Modo sencillo activado"); } };
+$("salirSencillo").onclick = () => { if (confirm("Esto es para Paulo: muestra facturas, Excel y ajustes. ¿Seguir?")) { ponerSencillo(false); toast("Todas las opciones visibles"); } };
 function goTab(t) {
+  if (esSencillo() && !["tIng", "tStock"].includes(t)) t = "tIng";
   S.tab = t;
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
   Object.keys(TITULOS).forEach((x) => show(x, x === t));
@@ -510,16 +533,19 @@ function renderCopia() {
   $("bkInfo").textContent = typeof t === "number" ? "Última copia: " + new Date(t).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) + (S.cfg.ultima_copia_por ? " (" + S.cfg.ultima_copia_por.split("@")[0] + ")" : "") : "Aún no se ha descargado ninguna copia.";
 }
 const NODOS_COPIA = ["ingresos", "gastos", "productos", "movimientos", "proveedores", "config"];
-async function hacerCopia(prefijo) {
+async function prepararCopia(prefijo) {
   const datos = {};
   for (const n of NODOS_COPIA) datos[n] = (await db.ref(n).once("value")).val() || {};
   delete datos.config.gemini_key; // la clave de IA no sale del sistema
   const copia = { app: "belleza-lua", creada: new Date().toISOString(), por: S.user.email,
     cuentas: { ingresos: Object.keys(datos.ingresos).length, gastos: Object.keys(datos.gastos).length, productos: Object.keys(datos.productos).length, movimientos: Object.keys(datos.movimientos).length },
     datos };
-  const blob = new Blob([JSON.stringify(copia, null, 1)], { type: "application/json" });
+  return { blob: new Blob([JSON.stringify(copia, null, 1)], { type: "application/json" }), nombre: `${prefijo}_BELLEZA_LUA_${hoyISO()}.json` };
+}
+async function hacerCopia(prefijo) {
+  const c = await prepararCopia(prefijo);
   busy();
-  await guardarBlob(blob, `${prefijo}_BELLEZA_LUA_${hoyISO()}.json`);
+  return guardarBlob(c.blob, c.nombre);
 }
 $("bkDown").onclick = async () => {
   busy("Preparando copia…");
@@ -531,38 +557,71 @@ $("bkDown").onclick = async () => {
 };
 /* Restaurar una copia: sustituye todos los datos por los del archivo (antes descarga una copia de lo actual) */
 async function leerJSON(file) { try { return JSON.parse(await file.text()); } catch (e) { return null; } }
+const esObj = (v) => v != null && typeof v === "object" && !Array.isArray(v);
+const numOr = (v, d) => (typeof v === "number" && isFinite(v) ? v : d);
+function limpiarCopia(d) { // los números que se pintan en pantalla, siempre números
+  Object.values(d.productos).forEach((x) => { if (!esObj(x)) return; x.stock = numOr(x.stock, 0); x.min = numOr(x.min, 0); x.coste = numOr(x.coste, null); x.pvp = numOr(x.pvp, null); });
+  Object.values(d.movimientos).forEach((x) => { if (!esObj(x)) return; ["delta", "uds", "bnf", "ts"].forEach((k) => { x[k] = numOr(x[k], 0); }); x.precio = numOr(x.precio, null); x.coste = numOr(x.coste, null); });
+}
+function configRestaurada(cop) {
+  const cfg = Object.assign({}, cop);
+  if (S.cfg.gemini_key) cfg.gemini_key = S.cfg.gemini_key; // la clave de IA no viaja en la copia
+  if (!cfg.gemini_model && S.cfg.gemini_model) cfg.gemini_model = S.cfg.gemini_model;
+  if (!cfg.historico && S.cfg.historico) cfg.historico = S.cfg.historico;
+  // La numeración de Declarando nunca retrocede: facturas ya emitidas después de la copia
+  cfg.declarando_mes = Object.assign({}, cfg.declarando_mes || {}, S.cfg.declarando_mes || {});
+  cfg.declarando_n = Object.assign({}, cfg.declarando_n || {}, S.cfg.declarando_n || {});
+  const a = partesDecl(S.cfg.declarando_sig), b = partesDecl(cfg.declarando_sig);
+  if (a && (!b || (a.pre === b.pre ? a.n > b.n : a.pre > b.pre))) cfg.declarando_sig = S.cfg.declarando_sig;
+  if ((S.cfg.ultima_copia || 0) > (cfg.ultima_copia || 0)) { cfg.ultima_copia = S.cfg.ultima_copia; cfg.ultima_copia_por = S.cfg.ultima_copia_por || null; }
+  cfg.restaurada = { ts: firebase.database.ServerValue.TIMESTAMP, copia: cop.restaurada_de || null, por: S.user.email };
+  return cfg;
+}
 $("bkFile").onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   const c = await leerJSON(f);
-  if (!c || c.app !== "belleza-lua" || !c.datos || typeof c.datos !== "object") return toast("Ese archivo no es una copia de Belleza Lua");
-  for (const n of NODOS_COPIA) { const v = c.datos[n]; if (v != null && (typeof v !== "object" || Array.isArray(v))) return toast("La copia está dañada (" + n + ")"); }
+  if (!c || c.app !== "belleza-lua" || !esObj(c.datos)) return toast("Ese archivo no es una copia de Belleza Lua");
+  const falta = NODOS_COPIA.filter((n) => !esObj(c.datos[n]));
+  if (falta.length) return toast("La copia está incompleta o dañada (" + falta.join(", ") + "): no se restaura");
+  limpiarCopia(c.datos);
   const cuenta = (o) => Object.keys(o || {}).length;
   const filas = [["Hojas del talonario", "ingresos", S.ingresos], ["Gastos", "gastos", S.gastos], ["Productos", "productos", S.prods], ["Proveedores aprendidos", "proveedores", S.provs]];
-  const cuando = c.creada ? new Date(c.creada).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "fecha desconocida";
+  const vacian = filas.filter(([, n, act]) => cuenta(act) > 0 && cuenta(c.datos[n]) === 0).map(([l]) => l);
+  const fc = c.creada ? new Date(c.creada) : null;
+  const cuando = fc && !isNaN(fc) ? fc.toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "fecha desconocida";
+  busy("Preparando la copia de lo actual…");
+  let actual;
+  try { actual = await prepararCopia("ANTES_DE_RESTAURAR"); } catch (err) { console.error(err); busy(); return toast("No se pudo leer lo actual: " + err.message); }
+  busy();
   sheet(`<h2>Restaurar copia</h2>
     <div class="muted">Copia del ${esc(cuando)}${c.por ? " · " + esc(String(c.por).split("@")[0]) : ""}</div>
-    <div class="card warn" style="margin-top:10px">Se sustituyen <b>todos</b> los datos de la app (hojas, gastos, stock, movimientos, proveedores y ajustes) por los de la copia. Lo apuntado después de esa fecha se pierde. Antes se descarga una copia de lo que hay ahora, por si acaso.</div>
+    <div class="card warn" style="margin-top:10px">Se sustituyen <b>todos</b> los datos de la app (hojas, gastos, stock, movimientos, proveedores y ajustes) por los de la copia. Lo apuntado después de esa fecha se pierde. La clave de IA, el histórico y la numeración de Declarando se conservan.</div>
     <table class="t"><tr><th></th><th>En la copia</th><th>Ahora</th></tr>
     ${filas.map(([l, n, act]) => `<tr><td>${l}</td><td>${cuenta(c.datos[n])}</td><td>${cuenta(act)}</td></tr>`).join("")}</table>
-    <button class="btn bad full" style="margin-top:16px" id="rOk">Restaurar esta copia</button>
+    ${vacian.length ? `<div class="card warn" style="margin-top:10px">⚠ La copia no tiene ${esc(vacian.join(", ").toLowerCase())}: se quedarían a cero.</div>` : ""}
+    <p class="muted" style="margin-top:12px">Primero guarda lo que hay ahora, por si te equivocas de archivo.</p>
+    <button class="btn sec full" id="rCopia">1. Guardar copia de lo actual</button>
+    <button class="btn bad full" style="margin-top:8px" id="rOk" disabled>2. Restaurar esta copia</button>
     <button class="btn ghost full" style="margin-top:8px" id="rBack">Cancelar</button>`);
   $("rBack").onclick = closeSheet;
+  $("rCopia").onclick = async () => {
+    const guardada = await guardarBlob(actual.blob, actual.nombre); // directo, sin esperas: el iPhone exige que salga del toque
+    if (!guardada) return toast("No se guardó la copia de lo actual: vuelve a pulsar 1");
+    if ($("rCopia")) { $("rCopia").textContent = "✓ Copia de lo actual guardada"; $("rCopia").disabled = true; }
+    if ($("rOk")) $("rOk").disabled = false;
+  };
   $("rOk").onclick = async () => {
-    if (!confirm("¿Seguro? Se sustituyen todos los datos actuales por los de la copia.")) return;
-    $("rOk").disabled = true;
+    if (!confirm("¿Seguro? Se sustituyen todos los datos actuales por los de la copia." + (vacian.length ? "\n\nOJO: " + vacian.join(", ") + " se quedan a cero." : ""))) return;
+    if ($("rOk")) $("rOk").disabled = true;
     try {
-      busy("Guardando una copia de lo actual…");
-      await hacerCopia("ANTES_DE_RESTAURAR");
       busy("Restaurando…");
-      const cfg = Object.assign({}, c.datos.config || {});
-      if (S.cfg.gemini_key) cfg.gemini_key = S.cfg.gemini_key; // la clave de IA no viaja en la copia
-      if (!cfg.gemini_model && S.cfg.gemini_model) cfg.gemini_model = S.cfg.gemini_model;
-      cfg.restaurada = { ts: firebase.database.ServerValue.TIMESTAMP, copia: c.creada || null, por: S.user.email };
+      const cfg = configRestaurada(Object.assign({}, c.datos.config, { restaurada_de: c.creada || null }));
+      delete cfg.restaurada_de;
       const upd = {};
       NODOS_COPIA.forEach((n) => { upd[n] = n === "config" ? cfg : (cuenta(c.datos[n]) ? c.datos[n] : null); });
       await db.ref().update(upd);
       busy(); closeSheet(); toast("Copia restaurada");
-    } catch (err) { console.error(err); busy(); toast("No se pudo restaurar: " + err.message); $("rOk").disabled = false; }
+    } catch (err) { console.error(err); busy(); toast("No se pudo restaurar: " + err.message); if ($("rOk")) $("rOk").disabled = false; }
   };
 };
 /* Histórico de años anteriores (Excel antiguo) para el Excel anual */
@@ -578,9 +637,13 @@ const claveFB = (k) => String(k).replace(/[.#$\[\]\/]/g, " ").trim();
 $("histFile").onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   const H = await leerJSON(f);
-  if (!H || H.app !== "belleza-lua-historico" || !H.anios || typeof H.anios !== "object" || !/^\d{4}-\d{2}$/.test(H.desde || "")) return toast("Ese archivo no es un histórico de Belleza Lua");
+  if (!H || H.app !== "belleza-lua-historico" || !esObj(H.anios) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(H.desde || "")) return toast("Ese archivo no es un histórico de Belleza Lua");
+  if (!Object.keys(H.anios).length || Object.entries(H.anios).some(([y, a]) => !/^\d{4}$/.test(y) || !esObj(a))) return toast("El histórico está dañado");
   // Nombres de categoría válidos como claves de Firebase
-  Object.values(H.anios).forEach((a) => ["cat", "cat_anual"].forEach((k) => { if (a[k]) { const o = {}; Object.keys(a[k]).forEach((c) => { o[claveFB(c)] = a[k][c]; }); a[k] = o; } }));
+  Object.values(H.anios).forEach((a) => ["cat", "cat_anual"].forEach((k) => {
+    if (!esObj(a[k])) { delete a[k]; return; }
+    const o = {}; Object.keys(a[k]).forEach((c) => { const kk = claveFB(c); if (kk && !(kk in o)) o[kk] = a[k][c]; }); a[k] = o;
+  }));
   const anios = Object.keys(H.anios).sort();
   if (!confirm(`Cargar el histórico de ${anios.join(", ")}?\nLa app empieza a contar desde ${MES_TXT(H.desde)}. Sustituye al histórico cargado antes.`)) return;
   try { await db.ref("config/historico").set(H); toast("Histórico cargado"); }
@@ -648,7 +711,7 @@ function renderIng() {
     if (faltan.length) aviso = `<div class="card warn">Números de hoja sin registrar este mes: ${faltan.slice(0, 25).join(", ")}${faltan.length > 25 ? "…" : ""}</div>`;
   }
   const dc = diasSinCopia();
-  if (Object.keys(S.ingresos).length && (dc == null || dc > 30)) aviso += `<div class="card warn">${dc == null ? "Aún no has descargado ninguna copia de seguridad" : "Hace " + dc + " días que no descargas copia de seguridad"}: Ajustes → Copia de seguridad.</div>`;
+  if (!esSencillo() && Object.keys(S.ingresos).length && (dc == null || dc > 30)) aviso += `<div class="card warn">${dc == null ? "Aún no has descargado ninguna copia de seguridad" : "Hace " + dc + " días que no descargas copia de seguridad"}: Ajustes → Copia de seguridad.</div>`;
   $("ingAviso").innerHTML = aviso;
   if (!lista.length) { $("ingList").innerHTML = `<div class="list"><div class="empty">Sin hojas registradas en ${mesNombre(S.mes)}</div></div>`; return; }
   const dias = {};
@@ -1383,22 +1446,21 @@ function separarFragancia(id) {
     const hid = (id + "-" + slugFr(nom)).slice(0, 120);
     $("fOk").disabled = true;
     try {
-      if (!S.prods[hid]) {
-        const nuevo = { ean: "", cod: hid, desc: act.desc + " · " + nom, prov: act.prov, cat: act.cat || "Colonia", uso: "Venta",
-          coste: act.coste != null ? act.coste : null, pvp: act.pvp != null ? act.pvp : null, min: 0, stock: 0, padre: id, fragancia: nom };
-        await db.ref("productos/" + hid).set(nuevo); S.prods[hid] = nuevo;
-      }
-      await db.ref("productos/" + id + "/stock").transaction((c) => (c || 0) - uds);
-      await db.ref("productos/" + hid + "/stock").transaction((c) => (c || 0) + uds);
-      const grupo = db.ref("movimientos").push().key, TS = firebase.database.ServerValue.TIMESTAMP;
-      const base = { ts: TS, tipo: "separacion", uds, bnf: 0, coste: act.coste != null ? act.coste : null, precio: null, email: S.user.email, grupo };
-      const upd = {};
+      // Todo en una sola escritura: o se hace entero (stock de las dos fichas + movimientos) o no se hace nada
+      const SV = firebase.database.ServerValue, upd = {};
+      const descH = S.prods[hid] ? S.prods[hid].desc : act.desc + " · " + nom;
+      if (!S.prods[hid]) upd["productos/" + hid] = { ean: "", cod: hid, desc: descH, prov: act.prov, cat: act.cat || "Colonia", uso: "Venta",
+        coste: act.coste != null ? act.coste : null, pvp: act.pvp != null ? act.pvp : null, min: 0, stock: uds, padre: id, fragancia: nom };
+      else upd["productos/" + hid + "/stock"] = SV.increment(uds);
+      upd["productos/" + id + "/stock"] = SV.increment(-uds);
+      const grupo = db.ref("movimientos").push().key;
+      const base = { ts: SV.TIMESTAMP, tipo: "separacion", uds, bnf: 0, coste: act.coste != null ? act.coste : null, precio: null, email: S.user.email, grupo };
       upd["movimientos/" + db.ref("movimientos").push().key] = Object.assign({}, base, { pid: id, desc: act.desc, delta: -uds, ref: "→ " + nom });
-      upd["movimientos/" + db.ref("movimientos").push().key] = Object.assign({}, base, { pid: hid, desc: S.prods[hid].desc, delta: uds, ref: "← " + act.desc });
+      upd["movimientos/" + db.ref("movimientos").push().key] = Object.assign({}, base, { pid: hid, desc: descH, delta: uds, ref: "← " + act.desc });
       await db.ref().update(upd);
       toast(`${pl(uds, "unidad", "unidades")} a ${nom}`);
       openProduct(hid);
-    } catch (e) { console.error(e); toast("Error al separar"); $("fOk").disabled = false; }
+    } catch (e) { console.error(e); toast("Error al separar: no se ha cambiado nada"); if ($("fOk")) $("fOk").disabled = false; }
   };
 }
 
@@ -1459,13 +1521,20 @@ async function undoMove(mid) {
   }
   if (!sameDay(m.ts, Date.now())) return toast("Solo se deshacen movimientos de hoy");
   if (m.tipo === "separacion" && m.grupo) { // se deshacen las dos mitades a la vez
+    if (S.deshaciendo === m.grupo) return;
     const par = S.movs.filter((x) => x.grupo === m.grupo);
+    if (par.length !== 2) return toast("No se encuentra la otra mitad de la separación: corrígelo con un Recuento");
+    const hija = par.find((x) => x.delta > 0), ph = hija && S.prods[hija.pid];
+    if (ph && (ph.stock || 0) < hija.delta && !confirm(`${ph.desc} solo tiene ${ph.stock || 0} en stock (se vendió después). Si deshaces, quedará en negativo. ¿Seguir?`)) return;
     if (!confirm(`¿Deshacer la separación de ${pl(Math.abs(m.delta), "unidad", "unidades")} (${m.ref || ""})?`)) return;
+    S.deshaciendo = m.grupo;
     try {
-      for (const x of par) { if (S.prods[x.pid]) await db.ref("productos/" + x.pid + "/stock").transaction((cur) => (cur || 0) - x.delta); }
-      const upd = {}; par.forEach((x) => { upd["movimientos/" + x.id] = null; }); await db.ref().update(upd);
+      const upd = {};
+      par.forEach((x) => { if (S.prods[x.pid]) upd["productos/" + x.pid + "/stock"] = firebase.database.ServerValue.increment(-x.delta); upd["movimientos/" + x.id] = null; });
+      await db.ref().update(upd);
       toast("Separación deshecha");
     } catch (e) { console.error(e); toast("No se pudo deshacer"); }
+    finally { S.deshaciendo = null; }
     return;
   }
   if (!confirm(`¿Deshacer "${TIPOS[m.tipo]}" de ${m.desc} (${m.delta > 0 ? "+" : ""}${m.delta})?`)) return;
@@ -1615,10 +1684,11 @@ function renderRes() {
 async function guardarBlob(blob, nombre) {
   const file = new File([blob], nombre, { type: blob.type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: nombre }); return; } catch (e) { if (e.name === "AbortError") return; }
+    try { await navigator.share({ files: [file], title: nombre }); return true; } catch (e) { if (e.name === "AbortError") return false; }
   }
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = nombre;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  return true;
 }
 const TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 function partesDecl(s) { const m = String(s || "").match(/^(.*?)(\d+)$/); return m ? { pre: m[1], n: +m[2], w: m[2].length } : null; }

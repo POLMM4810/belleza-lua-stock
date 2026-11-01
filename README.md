@@ -74,6 +74,9 @@ Si el modelo deja de existir, en Ajustes → Modelo prueba `gemini-2.5-flash`.
 2. **Stock → Cargar catálogo inicial** (solo una vez).
 3. iPhone: Safari → Compartir → **Añadir a pantalla de inicio**.
 
+## Modo sencillo (móvil del centro)
+**Ajustes → Modo sencillo en este móvil.** Deja a la vista solo **Ingresos** (fotos del talonario y hojas a mano) y **Stock** (buscar, escanear, venta, cabina e historial). Oculta gastos, Excel, copias, ajustes, alta de productos y pedido. Se guarda en ese móvil, no afecta a los demás. Para volver a verlo todo: Ingresos → abajo del todo → **Ver todas las opciones (Paulo)**.
+
 ## Productos vendidos en la hoja del talonario
 Al dar de alta, revisar (foto) o editar una hoja hay una sección **Productos vendidos**:
 - **+ Producto**: busca por nombre, código de barras o referencia, o pulsa **📷 Escanear** (el mismo escáner de Stock).

@@ -58,7 +58,7 @@
   function pad(n) { return String(n).padStart(2, "0"); }
   function r2(n) { var x = Number(n || 0), s = x < 0 ? -1 : 1; return s * Number(Math.round(Number(Math.abs(x).toFixed(6) + "e2")) + "e-2"); }
   function col(i) { var s = ""; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
-  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function esc(s) { return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function numStr(v) { var s = String(Number(Number(v).toFixed(10))); return s.indexOf("e") >= 0 ? Number(v).toFixed(10) : s; }
   function sum(a) { var t = 0; for (var i = 0; i < a.length; i++) t += (typeof a[i] === "number" ? a[i] : 0); return t; }
   function q(name) { return "'" + name.replace(/'/g, "''") + "'"; }
@@ -142,7 +142,7 @@
         } else if (typeof x.v === "number" && isFinite(x.v)) {
           cs.push('<c r="' + ref + '"' + s + '><v>' + numStr(x.v) + '</v></c>');
         } else if (x.v != null && x.v !== "") {
-          cs.push('<c r="' + ref + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + esc(x.v) + '</t></is></c>');
+          cs.push('<c r="' + ref + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + esc(String(x.v).slice(0, 32000)) + '</t></is></c>');
         } else cs.push('<c r="' + ref + '"' + s + '/>');
       }
       var h = this.heights[r];
@@ -251,7 +251,7 @@
         CATS.forEach(function (c) { M.cat[c[0]][m] = null; });
         if (hy && hy.cat) Object.keys(hy.cat).forEach(function (lab) { var v = at(hy.cat[lab], m); if (v != null) { var k = catDeHist(lab); M.cat[k][m] = r2((M.cat[k][m] || 0) + v); sc += v; } });
         M.sinCat[m] = gas != null && hy && hy.cat ? r2(gas - sc) : null;
-        if (hy && !hy.cat && gas != null) M.sinCat[m] = null;
+        if (hy && !hy.cat && gas != null) { M.sinCat[m] = gas; M.sinDesglose = true; }
       } else if (src === "app") {
         var ingM = (o.ingresos || []).filter(function (x) { return String(x.fecha || "").slice(0, 7) === key; });
         var gasM = (o.gastos || []).filter(function (x) { return String(x.fecha || "").slice(0, 7) === key; });
@@ -262,7 +262,7 @@
         gasM.forEach(function (g) { var k = catDeGasto(g); M.cat[k][m] = r2((M.cat[k][m] || 0) + (Number(g.total) || 0)); });
         M.sinCat[m] = 0;
         M.gastosApp = M.gastosApp.concat(gasM);
-        if (!mes.datos && !mes.cerrado) { M.ing[m] = null; M.gas[m] = null; }
+        if (!mes.datos) { M.ing[m] = null; M.gas[m] = null; M.sinCat[m] = null; }
       } else {
         M.ing[m] = null; M.gas[m] = null; M.sinCat[m] = null; CATS.forEach(function (c) { M.cat[c[0]][m] = null; });
       }
@@ -324,11 +324,11 @@
       MM.put(r, 2, ing, S.in); MM.put(r, 3, gas, S.in);
       var b = d ? r2((ing || 0) - (gas || 0)) : null; benef[m] = b;
       MM.put(r, 4, b, S.f, d ? "B" + r + "-C" + r : null);
-      MM.put(r, 5, d && ing ? b / ing : null, S.pct, d ? 'IF(B' + r + '>0,D' + r + '/B' + r + ',"")' : null);
+      MM.put(r, 5, d && ing > 0 ? b / ing : null, S.pct, d ? 'IF(B' + r + '>0,D' + r + '/B' + r + ',"")' : null);
       if (d) acum = r2(acum + b); acumV[m] = d ? acum : null;
       MM.put(r, 6, acumV[m], S.f, d ? "SUM($D$" + r0 + ":D" + r + ")" : null);
       var pi = P.ing[m]; MM.put(r, 7, pi, S.in);
-      MM.put(r, 8, d && pi ? (ing || 0) / pi - 1 : null, S.pctS, d && pi ? 'IF(AND(B' + r + '<>"",G' + r + '>0),B' + r + '/G' + r + '-1,"")' : null);
+      MM.put(r, 8, d && pi > 0 && ing != null ? ing / pi - 1 : null, S.pctS, d && pi > 0 ? 'IF(AND(B' + r + '<>"",G' + r + '>0),B' + r + '/G' + r + '-1,"")' : null);
       var mes = M.meses[m];
       MM.put(r, 9, mes.src === "hist" ? (d ? "Tu Excel antiguo" : "Sin datos") : mes.src === "app" ? (mes.actual ? "App (mes en curso)" : "App") : "Aún no", S.fuente);
     }
@@ -336,11 +336,11 @@
     var tIng = r2(sum(M.ing)), tGas = r2(sum(M.gas)), tBen = r2(tIng - tGas), tPrev = r2(sum(P.ing.filter(function (v, i) { return conDatos[i]; })));
     MM.put(rT, 1, "Total año", S.labelB);
     MM.put(rT, 2, tIng, S.fB, "SUM(B" + r0 + ":B" + (rT - 1) + ")"); MM.put(rT, 3, tGas, S.fB, "SUM(C" + r0 + ":C" + (rT - 1) + ")");
-    MM.put(rT, 4, tBen, S.fB, "B" + rT + "-C" + rT); MM.put(rT, 5, tIng ? tBen / tIng : null, S.pctB, 'IF(B' + rT + '>0,D' + rT + '/B' + rT + ',"")');
+    MM.put(rT, 4, tBen, S.fB, "B" + rT + "-C" + rT); MM.put(rT, 5, tIng > 0 ? tBen / tIng : null, S.pctB, 'IF(B' + rT + '>0,D' + rT + '/B' + rT + ',"")');
     MM.put(rT, 6, null, S.fB); MM.put(rT, 7, r2(sum(P.ing)), S.fB, "SUM(G" + r0 + ":G" + (rT - 1) + ")"); MM.put(rT, 8, null, S.fB); MM.put(rT, 9, null, S.fB);
     MM.put(rMed, 1, "Media al mes", S.label);
-    MM.put(rMed, 2, nDatos ? tIng / nDatos : null, S.f, nDatos ? 'IFERROR(AVERAGE(B' + r0 + ':B' + (rT - 1) + '),"")' : null);
-    MM.put(rMed, 3, nDatos ? tGas / nDatos : null, S.f, nDatos ? 'IFERROR(AVERAGE(C' + r0 + ':C' + (rT - 1) + '),"")' : null);
+    MM.put(rMed, 2, nDatos ? tIng / nDatos : null, S.f, nDatos ? 'SUM(B' + r0 + ':B' + (rT - 1) + ')/' + nDatos : null);
+    MM.put(rMed, 3, nDatos ? tGas / nDatos : null, S.f, nDatos ? 'SUM(C' + r0 + ':C' + (rT - 1) + ')/' + nDatos : null);
     MM.put(rMed, 4, nDatos ? tBen / nDatos : null, S.f, nDatos ? 'IFERROR(B' + rMed + '-C' + rMed + ',"")' : null);
     MM.put(rMed + 2, 1, "Cómo se lee: Beneficio = Ingresos − Gastos. Margen = qué parte de cada euro cobrado queda (20 % = de cada 100 € quedan 20 €). Beneficio acumulado = lo que llevas ganado en el año hasta ese mes.", S.small);
     MM.put(rMed + 3, 1, "«Ingresos vs " + (year - 1) + "»: +10 % = ese mes entró un 10 % más que el mismo mes del año pasado; en rojo, menos.", S.small);
@@ -379,16 +379,16 @@
       for (var mm = 0; mm < 12; mm++) { var v = r2(sum(cs.map(function (c) { return M.cat[c[0]][mm]; }))); gv[mm] = conDatos[mm] ? v : null; G.put(hr, 2 + mm, gv[mm], S.sectN, conDatos[mm] ? "SUM(" + col(2 + mm) + first + ":" + col(2 + mm) + last + ")" : null); }
       var gt = r2(sum(gv)); grupoVals[g.id] = { meses: gv, total: gt, prev: r2(sum(cs.map(function (c) { return catPrev(c[0]); }))) };
       G.put(hr, 14, gt, S.sectN, "SUM(B" + hr + ":M" + hr + ")"); G.put(hr, 15, nDatos ? gt / nDatos : null, S.sectN, nDatos ? "N" + hr + "/" + nDatos : null);
-      G.put(hr, 16, totalGas ? gt / totalGas : null, S.sectP, 'IFERROR(N' + hr + '/{TOT},"")'); G.put(hr, 17, grupoVals[g.id].prev || null, S.sectN, "SUM(Q" + first + ":Q" + last + ")");
+      G.put(hr, 16, totalGas ? gt / totalGas : null, S.sectP, 'IFERROR(N' + hr + '/{TOT},"")'); G.put(hr, 17, grupoVals[g.id].prev, S.sectN, "SUM(Q" + first + ":Q" + last + ")");
     });
     // Diferencia con el total del mes (gastos sin categoría en el Excel antiguo)
-    var hayDif = M.sinCat.some(function (v) { return v && Math.abs(v) >= 0.05; });
+    var hayDif = M.sinCat.some(function (v) { return v && Math.abs(v) >= 0.005; });
     var rSin = null;
     if (hayDif) {
-      rSin = gr; G.put(gr, 1, "Sin clasificar (diferencia en tu Excel antiguo)", S.label);
-      for (m = 0; m < 12; m++) G.put(gr, 2 + m, M.sinCat[m] && Math.abs(M.sinCat[m]) >= 0.05 ? M.sinCat[m] : null, S.in);
-      var ts = r2(sum(M.sinCat.filter(function (v) { return v && Math.abs(v) >= 0.05; })));
-      G.put(gr, 14, ts, S.fB, "SUM(B" + gr + ":M" + gr + ")"); G.put(gr, 15, nDatos ? ts / nDatos : null, S.f, "N" + gr + "/" + nDatos);
+      rSin = gr; G.put(gr, 1, M.sinDesglose ? "Sin desglose por mes (tu Excel antiguo solo tiene el total del año)" : "Sin clasificar (diferencia en tu Excel antiguo)", S.label);
+      for (m = 0; m < 12; m++) G.put(gr, 2 + m, M.sinCat[m] && Math.abs(M.sinCat[m]) >= 0.005 ? M.sinCat[m] : null, S.in);
+      var ts = r2(sum(M.sinCat.filter(function (v) { return v && Math.abs(v) >= 0.005; })));
+      G.put(gr, 14, ts, S.fB, "SUM(B" + gr + ":M" + gr + ")"); G.put(gr, 15, nDatos ? ts / nDatos : null, S.f, nDatos ? "N" + gr + "/" + nDatos : null);
       G.put(gr, 16, totalGas ? ts / totalGas : null, S.pct, 'IFERROR(N' + gr + '/{TOT},"")'); gr++;
     }
     var rGT = gr; G.put(rGT, 1, "TOTAL GASTOS", S.labelB);
@@ -445,7 +445,7 @@
         { name: "Beneficio", nameRef: q(Hs.name) + "!$A$" + (yh + 3), ref: q(Hs.name) + "!$B$" + (yh + 3) + ":$" + col(1 + ys.length) + "$" + (yh + 3), vals: ys.map(function (y) { return resY[y].ben; }), color: "2E7D5B", labels: 1 }] }) });
     var palY = ["CBD5E1", "94A3B8", "D4A5B5", "7A4A5A", "C2185B", "4A2735"];
     Hs.charts.push({ at: [yh + 18, chH, yh + 36, chH + 9], xml: chartXml({ title: "Ingresos de cada mes, un color por año", cats: { ref: q(Hs.name) + "!$A$" + (ti + 1) + ":$A$" + (ti + 12), vals: MESES_L.map(function (x) { return x.slice(0, 3); }) },
-      series: ys.map(function (y, k) { var c = col(2 + k); return { kind: "line", name: String(y), nameRef: q(Hs.name) + "!$" + c + "$" + ti, ref: q(Hs.name) + "!$" + c + "$" + (ti + 1) + ":$" + c + "$" + (ti + 12), vals: Ymod[y].ing, color: palY[(palY.length - ys.length + k + palY.length) % palY.length] }; }) }) });
+      series: ys.map(function (y, k) { var c = col(2 + k); return { kind: "line", name: String(y), nameRef: q(Hs.name) + "!$" + c + "$" + ti, ref: q(Hs.name) + "!$" + c + "$" + (ti + 1) + ":$" + c + "$" + (ti + 12), vals: Ymod[y].ing, color: palY[(((palY.length - ys.length + k) % palY.length) + palY.length) % palY.length] }; }) }) });
     sheets.push(Hs);
 
     // ═ GASTOS DETALLE (lo apuntado en la app) ═
@@ -458,7 +458,7 @@
     var lista = M.gastosApp.slice().sort(function (a, b) { return String(a.fecha).localeCompare(String(b.fecha)); });
     lista.forEach(function (g, k) {
       var rr = 5 + k, f = String(g.fecha || "");
-      var serial = f ? (Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 864e5 : null;
+      var serial = f ? (Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10) || 1) - Date.UTC(1899, 11, 30)) / 864e5 : null;
       D.put(rr, 1, serial, S.date); D.put(rr, 2, g.proveedor || "", S.t); D.put(rr, 3, g.categoria || "", S.t);
       var k2 = catDeGasto(g); D.put(rr, 4, CATS[CAT_IDX[k2]][1], S.t); D.put(rr, 5, g.numero || g.concepto || "", S.t);
       D.put(rr, 6, typeof g.base === "number" ? g.base : null, S.in); D.put(rr, 7, typeof g.iva === "number" ? g.iva : null, S.in); D.put(rr, 8, Number(g.total) || 0, S.in);
@@ -482,7 +482,7 @@
       ["Ingresos del año", tIng, S.kpiV, mmB + "B" + rT, "Todo lo cobrado (" + periodo + "), IVA incluido."],
       ["Gastos del año", tGas, S.kpiV, mmB + "C" + rT, "Todo lo pagado: facturas, alquiler, autónomo e impuestos."],
       ["Beneficio (lo que queda)", tBen, S.kpiV, mmB + "D" + rT, "Ingresos − gastos. Es lo que queda antes de la declaración de la renta."],
-      ["Margen", tIng ? tBen / tIng : null, S.kpiP, mmB + "E" + rT, "De cada 100 € cobrados, cuántos quedan."],
+      ["Margen", tIng > 0 ? tBen / tIng : null, S.kpiP, mmB + "E" + rT, "De cada 100 € cobrados, cuántos quedan."],
       ["Ingresos medios al mes", nDatos ? tIng / nDatos : null, S.kpiV, mmB + "B" + rMed, "Media de los meses con datos."],
       ["Gastos medios al mes", nDatos ? mediaG : null, S.kpiV, mmB + "C" + rMed, "Media de los meses con datos."],
       ["Para cubrir gastos hay que facturar al mes", nDatos ? mediaG : null, S.kpiV, "B10", "Lo mínimo para no perder dinero: igual a los gastos medios."],
@@ -498,8 +498,9 @@
     });
     // Fila 10 = "Para cubrir gastos al mes" (kr+6), fila 11 = días (kr+7) y 12 = al día: ajustar referencias exactas
     var rCub = kr + 6, rDias = kr + 7, rDia = kr + 8;
-    R.cells[rCub + ",2"].f = mmB + "C" + rMed;
-    R.cells[rDia + ",2"].f = 'IFERROR(B' + rCub + '/B' + rDias + ',"")';
+    R.cells[rCub + ",2"].f = nDatos ? mmB + "C" + rMed : null;
+    if (!nDatos) { [kr + 4, kr + 5].forEach(function (rr) { if (R.cells[rr + ",2"]) R.cells[rr + ",2"].f = null; }); }
+    R.cells[rDia + ",2"].f = nDatos ? 'IFERROR(B' + rCub + '/B' + rDias + ',"")' : null;
     R.cf.push({ ref: "B" + (kr + 2), rules: [{ f: "B" + (kr + 2) + "<0", dxf: DX.red }, { f: "B" + (kr + 2) + ">=0", dxf: DX.green }] });
     var rG = kr + kpis.length + 1;
     R.put(rG, 1, "Gráficas", S.h2);
