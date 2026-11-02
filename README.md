@@ -10,8 +10,8 @@ Herramienta interna: **no emite facturas ni tickets**.
 | **Ingresos** | Hojas del talonario por foto (con IA gratuita) o a mano, **con los productos vendidos** (descuentan stock en el mismo paso). Total, base, IVA, cremas y colonias del mes. Avisa de números de hoja sin registrar. Exporta el Excel del mes con el formato de Declarando |
 | **Gastos** | Facturas en PDF (se leen sin IA y sin coste) o en foto (con IA). Recibos de autónomos y pagos de modelos 115/130/303 del banco en PDF. Gastos sin factura a mano. Totales por categoría |
 | **Stock** | Catálogo, escáner de código de barras, pedido, historial. Las facturas de Germaine y de Yodeyma dan entrada en stock automáticamente y las hojas del talonario descuentan lo vendido |
-| **Resumen** | Resultado del mes y del año, gastos por categoría y exportación del Excel anual |
-| **Ajustes** | Clave de IA, NIF del negocio, próximo nº de Declarando, factor PVP y proveedores aprendidos |
+| **Resumen** | Resultado del mes y del año, gastos por categoría y botón **Actualizar Excel anual** (explicado y con gráficas) |
+| **Ajustes** | Clave de IA, NIF del negocio, próximo nº de Declarando, factor PVP, copia de seguridad (descargar y restaurar), histórico de años anteriores y proveedores aprendidos |
 
 ### Excel del mes (Declarando)
 Se genera sobre `plantilla_mes.xlsx` (el Excel mensual de siempre, vacío de datos) con las mismas reglas:
@@ -22,9 +22,23 @@ Se genera sobre `plantilla_mes.xlsx` (el Excel mensual de siempre, vacío de dat
 - La columna M y las filas de TOTAL B quedan vacías / con fórmula: la app no las rellena.
 - Nombre del archivo: `MES_<MES>_<AÑO>_MIRIAM_LORENZO.xlsx`.
 
+### Excel anual (para entender cómo va el negocio)
+**Resumen → Actualizar Excel anual** genera `Belleza_Lua_Anual_<AÑO>.xlsx` del año que se ve arriba. Se puede sacar cuantas veces quieras: siempre sale con lo último apuntado. Lo hace `excel_anual.js` en el propio móvil, sin librerías ni internet, y se ve bien en la vista previa del iPhone (números y gráficas).
+
+| Hoja | Qué tiene |
+|---|---|
+| EMPIEZA AQUÍ | Instrucciones, qué significa cada palabra (beneficio, margen, base, IVA…), colores y de dónde sale cada dato |
+| RESUMEN | Las cifras clave del año, cuánto hay que facturar al mes y al día para cubrir gastos (los días de trabajo se pueden cambiar en la casilla amarilla), gráficas de ingresos/gastos y de en qué se va el dinero |
+| MES A MES | Ingresos, gastos, beneficio, margen y beneficio acumulado de cada mes |
+| GASTOS POR CATEGORÍA | 22 categorías en 5 grupos (el local, producto para vender, trabajo y equipo, impuestos y autónomo, servicios y otros), con gráfica |
+| HISTÓRICO | Los años comparados desde 2023 |
+| GASTOS DETALLE | Cada gasto apuntado en la app |
+
+**Histórico de años anteriores:** los meses de antes de usar la app salen del Excel antiguo. Se cargan una sola vez en **Ajustes → Histórico de años anteriores → Cargar histórico…** con el archivo `historico.json` (se guarda en Firebase, en `config/historico`; no está en este repositorio porque son cifras del negocio). El archivo dice desde qué mes cuenta la app (`"desde": "2026-11"`): antes de ese mes, histórico; desde ese mes, lo apuntado en la app.
+
 ## Archivos (súbelos todos a la raíz del repositorio)
 
-`index.html`, `lector.js`, `plantilla_mes.xlsx`, `catalogo.json`, `database.rules.json`, `manifest.json`, `icon-180.png`, `icon-512.png`, `README.md` y la carpeta `vendor/` (contiene `exceljs.min.js`, licencia MIT)
+`index.html`, `lector.js`, `excel_anual.js`, `plantilla_mes.xlsx`, `catalogo.json`, `database.rules.json`, `manifest.json`, `icon-180.png`, `icon-512.png`, `README.md` y la carpeta `vendor/` (contiene `exceljs.min.js`, licencia MIT)
 
 ## Puesta en marcha (unos 30 minutos)
 
@@ -60,6 +74,9 @@ Si el modelo deja de existir, en Ajustes → Modelo prueba `gemini-2.5-flash`.
 2. **Stock → Cargar catálogo inicial** (solo una vez).
 3. iPhone: Safari → Compartir → **Añadir a pantalla de inicio**.
 
+## Modo sencillo (móvil del centro)
+**Ajustes → Modo sencillo en este móvil.** Deja a la vista solo **Ingresos** (fotos del talonario y hojas a mano) y **Stock** (buscar, escanear, venta, cabina e historial). Oculta gastos, Excel, copias, ajustes, alta de productos y pedido. Se guarda en ese móvil, no afecta a los demás. Para volver a verlo todo: Ingresos → abajo del todo → **Ver todas las opciones (Paulo)**.
+
 ## Productos vendidos en la hoja del talonario
 Al dar de alta, revisar (foto) o editar una hoja hay una sección **Productos vendidos**:
 - **+ Producto**: busca por nombre, código de barras o referencia, o pulsa **📷 Escanear** (el mismo escáner de Stock).
@@ -84,6 +101,7 @@ Al subir el PDF de una factura de Yodeyma, la pantalla de revisión ofrece **Dar
 - Cada colonia de la factura que no exista se da de alta sola: proveedor Yodeyma, uso Venta, coste = precio de la factura sin IVA y PVP = coste × factor PVP (Ajustes). Si ya existe, suma unidades y actualiza el coste.
 - Las facturas de Yodeyma no traen código de barras ni referencia: la colonia se reconoce por su descripción («EAU TOILET. POUR FEMME 100 ML»). Por eso el stock va **por tipo y tamaño**, no por fragancia.
 - Las líneas a 0 € (probadores, expositores, kits promocionales) no entran en stock. Un producto regalado (precio con descuento total) entra como bonificado.
+- **Separar por fragancia:** en Stock, abre la colonia → **Separar por fragancia** → escribe la fragancia y cuántas unidades son. Se crea una ficha para esa fragancia (mismo coste y PVP) y las unidades pasan a ella; si la fragancia ya existe, se suman. Queda en el historial como «Separación» y se puede deshacer el mismo día (se deshacen las dos partes a la vez).
 - Para usar el escáner con una colonia: en Stock, abre la colonia → Editar datos del producto → escribe su código de barras.
 
 ## Facturas en PDF de proveedores
@@ -105,20 +123,21 @@ Al subir el PDF de una factura de Yodeyma, la pantalla de revisión ofrece **Dar
 - Hazla una vez al mes, después de sacar el Excel. Si pasan más de 30 días sin copia, la pestaña Ingresos avisa.
 - El plan gratuito de Firebase no hace copias automáticas: este archivo es la única copia.
 
-### Restaurar una copia (no hay botón en la app)
-El archivo de copia guarda los datos dentro de `"datos"`, separados por nodos: `ingresos`, `gastos`, `productos`, `movimientos`, `proveedores` y `config`. Se restaura **nodo a nodo** desde la consola de Firebase:
-1. Saca del archivo el contenido de un nodo, por ejemplo todo lo que hay dentro de `"datos" → "ingresos"`, y guárdalo como `ingresos.json` (o pídeselo a Claude con el archivo de copia).
-2. Firebase → Realtime Database → **Datos** → entra en el nodo `ingresos` (haz clic en él para que la ruta de arriba termine en `/ingresos`).
-3. Menú ⋮ → **Importar JSON** → elige `ingresos.json`. Sustituye todo el contenido de ese nodo.
-4. Repite con los demás nodos que quieras recuperar.
+### Restaurar una copia
+**Ajustes → Copia de seguridad → Restaurar una copia…** → elige el archivo `COPIA_BELLEZA_LUA_….json`.
+1. La app enseña de qué fecha es la copia y cuántas hojas, gastos y productos tiene frente a los de ahora.
+2. Al confirmar, **primero descarga una copia de lo que hay ahora** (`ANTES_DE_RESTAURAR_BELLEZA_LUA_….json`), por si te equivocas de archivo.
+3. Después sustituye todos los datos (hojas, gastos, stock, movimientos, proveedores y ajustes) por los de la copia. Lo apuntado después de la fecha de la copia se pierde.
 
-⚠ **Nunca importes en la raíz** (`/`): borraría el nodo `usuarios` y nadie podría entrar. Si pasara, vuelve a crear `usuarios` con los UID y valor `true`.
-⚠ Al restaurar `config`, la clave de IA no viene en la copia: vuelve a pegarla en Ajustes.
+La clave de IA y el histórico se conservan si la copia no los trae. Los usuarios no se tocan nunca.
+
+⚠ Si restauras a mano desde la consola de Firebase (Importar JSON), hazlo nodo a nodo y **nunca en la raíz** (`/`): borraría el nodo `usuarios` y nadie podría entrar.
 
 ## Numeración de Declarando
 - La app guarda qué números ha usado cada mes exportado. Si al exportar un mes los números se pisan con otro mes ya exportado (p. ej. al volver a sacar un mes con una hoja olvidada), avisa antes de generar y propone el siguiente número libre.
 
 ## Notas
+- Las devoluciones (abonos de Germaine) restan stock y quedan en el historial como «Devolución».
 - Las facturas en PDF con texto se leen en el propio móvil, sin IA y sin enviar nada fuera.
 - Las fotos se envían a Google solo si hay clave de IA. Con usuarios del EEE, Google aplica a los datos el trato de los servicios de pago (no se usan para entrenar); compruébalo en las condiciones de la API de Gemini.
 - La app no guarda las fotos: conserva el talonario y las facturas originales.
