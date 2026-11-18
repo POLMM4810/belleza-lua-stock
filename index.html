@@ -1770,17 +1770,28 @@ async function undoMove(mid) {
     return;
   }
   if (m.tipo === "ajuste" && m.grupo) { // recuento importado desde Excel: se deshace entero
-    const lote = S.movs.filter((x) => x.grupo === m.grupo);
+    // El lote se lee de Firebase (el historial en pantalla solo guarda los últimos 300 movimientos)
+    const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+    let lote = [];
+    try {
+      const snap = await db.ref("movimientos").orderByChild("ts").startAt(hoy0.getTime()).once("value");
+      snap.forEach((c) => { const v = c.val(); if (v && v.grupo === m.grupo) lote.push(Object.assign({ id: c.key }, v)); });
+    } catch (e) { console.error(e); return toast("No se pudo leer el recuento importado"); }
+    if (!lote.length) return toast("No se encuentra el recuento importado");
     if (!confirm(`Este recuento se importó desde Excel (${pl(lote.length, "producto", "productos")}). ¿Deshacer toda la importación?`)) return;
     try {
       const upd = {};
-      lote.forEach((x) => {
+      for (const x of lote) {
         upd["movimientos/" + x.id] = null;
-        if (!S.prods[x.pid]) return;
-        const otros = S.movs.some((y) => y.pid === x.pid && y.grupo !== m.grupo);
-        if (x.nuevo && !otros) upd["productos/" + x.pid] = null; // lo creó la importación y no se ha usado
+        if (!S.prods[x.pid]) continue;
+        let otros = true;
+        if (x.nuevo) { // lo creó la importación: se borra si no tiene ningún otro movimiento
+          const sp = await db.ref("movimientos").orderByChild("pid").equalTo(x.pid).once("value");
+          otros = false; sp.forEach((c) => { if ((c.val() || {}).grupo !== m.grupo) otros = true; });
+        }
+        if (x.nuevo && !otros) upd["productos/" + x.pid] = null;
         else upd["productos/" + x.pid + "/stock"] = firebase.database.ServerValue.increment(-x.delta);
-      });
+      }
       await db.ref().update(upd);
       toast("Importación deshecha");
     } catch (e) { console.error(e); toast("No se pudo deshacer"); }
