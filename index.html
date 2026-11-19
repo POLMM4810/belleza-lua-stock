@@ -1493,6 +1493,19 @@ function buscarEan(code) {
   if (!code) return null;
   return Object.keys(S.prods).find((k) => S.prods[k].ean === code) || null;
 }
+/* Clave para un producto nuevo: el código de barras si está libre; si ya hay una ficha con esa clave
+   (p. ej. un producto al que se le cambió el código), clave nueva para no sobrescribirla. */
+function claveLibre(ean) {
+  ean = String(ean || "").replace(/\D/g, "");
+  return ean && !S.prods[ean] && !buscarEan(ean) ? ean : db.ref("productos").push().key;
+}
+/* Ficha que ya usa este código (por código de barras o por clave), sin contar la que se edita */
+function codigoUsado(ean, exceptoId) {
+  ean = String(ean || "").replace(/\D/g, "");
+  if (!ean) return null;
+  const k = Object.keys(S.prods).find((k) => k !== exceptoId && (S.prods[k].ean === ean || (k === ean && !S.prods[k].ean)));
+  return k ? { id: k, desc: S.prods[k].desc || "(sin nombre)" } : null;
+}
 /* Producto del catálogo para una línea de factura: por código de barras (Germaine) o por referencia (Yodeyma) */
 function buscarLinea(l) {
   const id = buscarEan(l.ean);
@@ -1507,8 +1520,9 @@ async function aplicarStock(lineas, ref) {
     const coste = r2(l.precio * (1 - (l.dto || 0) / 100));
     let id = buscarLinea(l);
     if (!id) {
-      id = l.ean || l.cod;
+      id = l.ean ? claveLibre(l.ean) : l.cod;
       if (!id) continue;
+      if (!l.ean && S.prods[id]) id = db.ref("productos").push().key;
       const prov = l.prov || "Germaine de Capuccini";
       const nuevo = { ean: l.ean || "", cod: l.cod || "", desc: l.desc, prov, cat: l.cat || "Producto (venta o cabina)", uso: prov === "Yodeyma" ? "Venta" : "Revisar (Miriam)", coste, pvp: r2(coste * S.factor), min: 0, stock: 0 };
       await db.ref("productos/" + id).set(nuevo);
@@ -1654,7 +1668,7 @@ async function aplicarImportacion(items) {
     if (pid === "nuevo") {
       const a = it.alta || {};
       const ean = it.r.ean && !buscarEan(it.r.ean) ? it.r.ean : "";
-      pid = ean || db.ref("productos").push().key;
+      pid = claveLibre(ean);
       const p = { ean, cod: "", desc: it.r.desc, prov: a.prov || it.r.prov || "Germaine de Capuccini",
         cat: CATS_PROD.includes(a.cat) ? a.cat : "Producto (venta o cabina)", uso: USOS.includes(a.uso) ? a.uso : "Revisar (Miriam)",
         coste: null, pvp: null, min: 0, stock: 0 };
@@ -1964,6 +1978,7 @@ function editProduct(id, presetEan) {
     <label>Proveedor</label><input id="eProv" list="provDl" value="${esc(p.prov)}"><datalist id="provDl">${provs.map((v) => `<option value="${esc(v)}">`).join("")}</datalist>
     <label>Uso</label><select id="eUso">${USOS.map((u) => `<option ${u === p.uso ? "selected" : ""}>${u}</option>`).join("")}</select>
     <div class="row"><div><label>Código de barras</label><input id="eEan" inputmode="numeric" value="${esc(p.ean)}"></div><div><label>Referencia</label><input id="eCod" value="${esc(p.cod)}"></div></div>
+    <div id="eDupAv" style="display:none;color:#b3261e;font-size:14px;margin-top:6px"></div>
     <div class="row"><div><label>Coste (sin IVA)</label><input id="eCoste" inputmode="decimal" value="${p.coste != null ? p.coste : ""}"></div>
     <div><label>PVP (IVA incl.)</label><input id="ePvp" inputmode="decimal" value="${p.pvp != null ? p.pvp : ""}"></div></div>
     <button class="btn ghost full" style="margin-top:8px" id="eCalc">Recalcular PVP con factor ${String(S.factor).replace(".", ",")}</button>
@@ -1973,6 +1988,12 @@ function editProduct(id, presetEan) {
     <button class="btn ghost full" style="margin-top:8px" id="eBack">Cancelar</button>`);
   $("eCalc").onclick = () => { const c = num($("eCoste").value); if (c == null) return toast("Pon primero el coste"); $("ePvp").value = r2(c * S.factor).toFixed(2); };
   $("eBack").onclick = () => (isNew ? closeSheet() : openProduct(id));
+  const revisarDup = () => {
+    const d = codigoUsado($("eEan").value, id), av = $("eDupAv");
+    av.style.display = d ? "block" : "none";
+    av.textContent = d ? "⚠ Este código ya lo tiene: " + d.desc : "";
+  };
+  $("eEan").oninput = revisarDup; revisarDup();
   if ($("eDel")) $("eDel").onclick = async () => {
     if (!confirm("¿Eliminar este producto? El historial de movimientos se conserva.")) return;
     await db.ref("productos/" + id).remove(); closeSheet(); toast("Producto eliminado");
@@ -1981,17 +2002,20 @@ function editProduct(id, presetEan) {
     const desc = $("eDesc").value.trim().toUpperCase();
     if (!desc) return toast("Falta la descripción");
     const ean = $("eEan").value.replace(/\D/g, "");
-    const dup = Object.entries(S.prods).find(([k, x]) => ean && x.ean === ean && k !== id);
-    if (dup) return toast("Ese código ya existe: " + dup[1].desc);
+    const dup = codigoUsado(ean, id);
+    if (dup) { avisoDup(dup); return; }
     const data = { desc, prov: $("eProv").value.trim(), uso: $("eUso").value, ean, cod: $("eCod").value.trim(), coste: num($("eCoste").value), pvp: num($("ePvp").value), min: Math.max(0, int($("eMin").value)) };
     try {
       if (isNew) {
-        const key = ean || db.ref("productos").push().key;
+        const key = claveLibre(ean);
         await db.ref("productos/" + key).set(Object.assign({ cat: "Producto (venta o cabina)", stock: 0 }, data));
         toast("Producto creado"); openProduct(key);
       } else { await db.ref("productos/" + id).update(data); toast("Guardado"); openProduct(id); }
     } catch (e) { console.error(e); toast("Error al guardar"); }
   };
+}
+function avisoDup(d) {
+  if (confirm("Ese código de barras ya lo tiene otro producto:\n\n" + d.desc + "\n\nNo se ha guardado nada. ¿Quieres abrir ese producto para revisarlo?")) openProduct(d.id);
 }
 $("newBtn").onclick = () => editProduct(null);
 
