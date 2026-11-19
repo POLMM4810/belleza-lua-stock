@@ -1728,8 +1728,14 @@ function renderChips() {
 }
 function filtered() {
   const q = $("q").value.trim().toUpperCase();
+  // Sin acentos ni guiones y por palabras sueltas: «máscara exfoliante extra-vitalidad» encuentra MASCARA EXFOLIANTE EXTRA VITALIDAD
+  const pal = norm($("q").value).split(/[^A-Z0-9]+/).filter(Boolean);
   return Object.entries(S.prods).filter(([, p]) => {
-    if (q) return (p.desc || "").toUpperCase().includes(q) || (p.ean || "").includes(q) || (p.cod || "").includes(q) || (p.prov || "").toUpperCase().includes(q);
+    if (q) {
+      if ((p.ean || "").includes(q) || (p.cod || "").includes(q)) return true;
+      const txt = " " + norm((p.desc || "") + " " + (p.prov || "")).replace(/[^A-Z0-9]+/g, " ") + " ";
+      return pal.length > 0 && pal.every((w) => txt.includes(w));
+    }
     if (S.filter === "all") return true;
     if (S.filter === "control") return p.uso !== "No controlar";
     if (S.filter === "low") return isLow(p);
