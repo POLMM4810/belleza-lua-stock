@@ -180,6 +180,7 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
       </div>
       <div class="list" id="stockList"></div>
       <label class="btn ghost full filebtn" id="impLbl" style="margin-top:12px">📥 Importar recuento desde Excel<input id="impXlsx" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+      <button class="btn ghost full" style="margin-top:8px" id="pvpVacios">💶 Rellenar PVP vacíos (productos de venta)</button>
     </div>
     <div id="svScan" class="hidden">
       <div id="reader"></div>
@@ -496,14 +497,22 @@ async function ia(prompt, mime, b64, texto) {
     } finally { if (t) clearTimeout(t); }
   };
   const MAX = 6, ESPERA = [3000, 5000, 8000, 12000, 15000];
-  let resp, ultimoError = "";
+  let resp, ultimoError = "", respaldoOK = modelo1 !== MODELO_RESPALDO, model = modelo1;
   for (let intento = 1; intento <= MAX; intento++) {
     // Los 3 primeros intentos con el modelo elegido; si sigue saturado, se prueba el ligero
-    const model = intento <= 3 ? modelo1 : MODELO_RESPALDO;
+    // (solo mientras el ligero acepte la petición; si la rechaza, se vuelve al principal)
+    model = intento > 3 && respaldoOK ? MODELO_RESPALDO : modelo1;
     try {
       resp = await pedir(model, true);
-      if (resp.r.status === 400 && /thinking/i.test(JSON.stringify(resp.j))) resp = await pedir(model, false);
+      // Cualquier 400: se repite sin "thinkingConfig" (no todos los modelos lo admiten y Google
+      // a veces solo responde "Request contains an invalid argument", sin decir qué falla)
+      if (resp.r.status === 400) resp = await pedir(model, false);
       const st = resp.r.status;
+      if (st === 400 && model === MODELO_RESPALDO) {
+        respaldoOK = false;
+        ultimoError = (resp.j.error && resp.j.error.message) || "Error 400";
+        if (intento < MAX) { avisoIA(`La IA está saturada. Reintentando (${intento + 1} de ${MAX})…`); await esperar(ESPERA[intento - 1]); continue; }
+      }
       if (st === 429 || st >= 500) {
         ultimoError = (resp.j.error && resp.j.error.message) || ("Error " + st);
         if (intento < MAX) { avisoIA(`La IA está saturada. Reintentando (${intento + 1} de ${MAX})…`); await esperar(ESPERA[intento - 1]); continue; }
@@ -518,7 +527,7 @@ async function ia(prompt, mime, b64, texto) {
     }
   }
   const { r, j } = resp;
-  if (!r.ok) throw new Error(r.status === 429 || r.status >= 500 ? "la IA de Google está saturada ahora mismo. Prueba en unos minutos o escribe los datos a mano" : ((j.error && j.error.message) || ("Error " + r.status)));
+  if (!r.ok) throw new Error(r.status === 429 || r.status >= 500 ? "la IA de Google está saturada ahora mismo. Prueba en unos minutos o escribe los datos a mano" : ((j.error && j.error.message) || ("Error " + r.status)) + " [" + model + "]");
   const txt = (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map((p) => p.text || "").join("");
   return JSON.parse(txt.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim());
 }
@@ -1857,6 +1866,33 @@ function editProduct(id, presetEan) {
   };
 }
 $("newBtn").onclick = () => editProduct(null);
+
+/* PVP vacíos: solo productos de Venta con coste y sin PVP. Los PVP ya puestos no se tocan. */
+function pvpPendientes() {
+  return Object.entries(S.prods)
+    .filter(([, p]) => p.uso === "Venta" && Number(p.coste) > 0 && !(Number(p.pvp) > 0))
+    .map(([pid, p]) => ({ pid, desc: p.desc || "", coste: Number(p.coste), pvp: r2(Number(p.coste) * S.factor) }))
+    .sort((a, b) => a.desc.localeCompare(b.desc));
+}
+$("pvpVacios").onclick = () => {
+  const l = pvpPendientes();
+  const sinCoste = Object.values(S.prods).filter((p) => p.uso === "Venta" && !(Number(p.coste) > 0) && !(Number(p.pvp) > 0)).length;
+  if (!l.length) return toast(sinCoste ? `No hay nada que calcular (${pl(sinCoste, "producto de venta sin coste", "productos de venta sin coste")})` : "Todos los productos de venta tienen PVP");
+  const f = String(S.factor).replace(".", ",");
+  sheet(`<h2>Rellenar PVP vacíos</h2>
+    <p class="muted">${pl(l.length, "producto", "productos")} de venta sin PVP. Se calcula coste × ${f}. Los que ya tienen PVP no se tocan.${sinCoste ? ` ${pl(sinCoste, "producto", "productos")} de venta no tienen coste: esos hay que ponerlos a mano.` : ""}</p>
+    <div class="list">${l.map((x) => `<div class="item"><div class="t"><div class="d">${esc(x.desc)}</div><div class="m">Coste ${eur(x.coste)} sin IVA → PVP ${eur(x.pvp)}</div></div></div>`).join("")}</div>
+    <button class="btn full" style="margin-top:12px" id="pvpOk">Guardar ${pl(l.length, "PVP", "PVP")}</button>
+    <button class="btn ghost full" style="margin-top:8px" id="pvpNo">Cancelar</button>`);
+  $("pvpNo").onclick = closeSheet;
+  $("pvpOk").onclick = async () => {
+    const upd = {};
+    l.forEach((x) => { if (S.prods[x.pid] && !(Number(S.prods[x.pid].pvp) > 0)) upd[x.pid + "/pvp"] = x.pvp; });
+    $("pvpOk").disabled = true; busy("Guardando PVP…");
+    try { await db.ref("productos").update(upd); busy(); closeSheet(); toast(`PVP guardado en ${pl(Object.keys(upd).length, "producto", "productos")}`); }
+    catch (e) { console.error(e); busy(); $("pvpOk").disabled = false; alert("No se pudo guardar: " + e.message); }
+  };
+};
 
 function handleCode(code) {
   const clean = String(code).replace(/\D/g, "");
