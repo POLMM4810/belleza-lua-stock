@@ -149,6 +149,7 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
     <div id="ingAviso"></div>
     <div id="ingList"></div>
     <button class="btn ghost full" id="ingExport">Exportar Excel del mes (Declarando)</button>
+    <button class="btn ghost full" style="margin-top:8px" id="ingClientas">👥 Clientas</button>
     <button class="btn ghost full" id="salirSencillo" style="margin-top:24px;font-size:13px">Ver todas las opciones (Paulo)</button>
   </section>
 
@@ -531,6 +532,7 @@ async function ia(prompt, mime, b64, texto) {
   const txt = (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map((p) => p.text || "").join("");
   return JSON.parse(txt.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim());
 }
+const SERVICIOS = ["Facial", "Corporal", "Masaje", "Depilación", "Manos y pies", "Aparatología", "Otro"];
 const PROMPT_TALONARIO = `Eres un lector de talonarios de un centro de estética en España.
 La imagen muestra la matriz (la parte que queda en el talonario) de una hoja, o de varias.
 Para cada hoja visible extrae:
@@ -540,9 +542,11 @@ Para cada hoja visible extrae:
 - cremas: suma de los importes de las líneas que sean cremas o cosmética vendida (0 si no hay).
 - colonias: suma de los importes de las líneas de colonias o perfumes (0 si no hay).
 - lineas: lista de {"concepto","unidades","importe"} con lo escrito en cada línea (importe = total de la línea; unidades = 1 si no se indica).
+- clienta: nombre y apellidos escritos tras "Sra." o "Sr." (tal cual, sin inventar; null si no hay).
+- servicios: lista con las categorías del tratamiento, elegidas SOLO de: ${SERVICIOS.map((x) => '"' + x + '"').join(", ")}. "Trata. facial", "higiene", "limpieza" → "Facial"; "Expert Jet", "radiofrecuencia", "aparatología" → "Aparatología"; "masaje" → "Masaje"; "corporal", "maderoterapia", "presoterapia" → "Corporal"; "cera", "depilación" → "Depilación"; "manicura", "pedicura" → "Manos y pies"; venta de productos sin tratamiento → []; lo que no encaje → "Otro".
 - dudas: texto breve si algo no se lee con claridad; "" si todo está claro.
-No incluyas el nombre de la clienta. Usa null si un dato no aparece.
-Responde solo con JSON: {"hojas":[{"numero":..,"fecha":..,"total":..,"cremas":..,"colonias":..,"lineas":[..],"dudas":".."}]}.
+Usa null si un dato no aparece.
+Responde solo con JSON: {"hojas":[{"numero":..,"fecha":..,"total":..,"cremas":..,"colonias":..,"clienta":..,"servicios":[..],"lineas":[..],"dudas":".."}]}.
 Si la imagen no es una hoja de talonario, responde {"hojas":[]}.`;
 function promptGasto() {
   const nif = (S.cfg.nif_propio || "").trim();
@@ -768,7 +772,7 @@ function renderIng() {
     const hs = dias[f], tot = r2(hs.reduce((s, x) => s + (x.total || 0), 0));
     const nG = gruposDeclarando(hs).length;
     return `<div class="list"><div class="dayh"><span>${DIAS[dParse(f).getDay()]} ${fCorta(f)} · ${hs.length} hoja${hs.length > 1 ? "s" : ""}${nG > 1 ? " · " + nG + " facturas" : ""}</span><span>${eur(tot)}</span></div>
-    ${hs.map((x) => `<div class="item" data-id="${esc(x.id)}"><div class="t"><div class="d">Nº ${x.num}</div>
+    ${hs.map((x) => `<div class="item" data-id="${esc(x.id)}"><div class="t"><div class="d">Nº ${x.num}${x.clienta ? " · " + esc(x.clienta) : ""}</div>
       <div class="m">${x.cremas ? "Cremas " + eur(x.cremas) : ""}${x.cremas && x.colonias ? " · " : ""}${x.colonias ? "Colonias " + eur(x.colonias) : ""}${x.origen === "foto" ? (x.cremas || x.colonias ? " · " : "") + "📷" : ""}${aLista(x.productos).length ? (x.cremas || x.colonias || x.origen === "foto" ? " · " : "") + "🧴 " + aLista(x.productos).reduce((s, l) => s + (int(l.uds) || 0), 0) : ""}</div></div>
       <div class="money">${eur(x.total)}</div></div>`).join("")}</div>`;
   }).join("");
@@ -782,6 +786,7 @@ function formIngreso(d, titulo, ctx) {
     <div class="row"><div><label>Nº de hoja</label><input id="iNum" inputmode="numeric" value="${esc(d.num == null ? "" : d.num)}"></div>
     <div><label>Fecha</label><input id="iFecha" type="date" value="${esc(d.fecha || "")}"></div></div>
     <label>Total (IVA incluido)</label><input id="iTotal" inputmode="decimal" value="${d.total == null ? "" : String(d.total).replace(".", ",")}" style="font-size:22px;font-weight:700">
+    ${formClienta(d)}
     <div class="row"><div><label>De ello, cremas</label><input id="iCremas" inputmode="decimal" value="${d.cremas ? String(d.cremas).replace(".", ",") : ""}"></div>
     <div><label>De ello, colonias</label><input id="iColonias" inputmode="decimal" value="${d.colonias ? String(d.colonias).replace(".", ",") : ""}"></div></div>
     <div class="pv">
@@ -808,6 +813,7 @@ function lineaDe(pid, uds, precio) {
   return { pid, desc: p.desc, uds: uds || 1, precio: precio != null ? r2(precio) : (p.pvp != null ? r2(p.pvp) : null), col: esColonia(p) };
 }
 function enlazarProductos(lineas, sug) {
+  enlazarClienta();
   FL = { lineas: aLista(lineas).map((l) => ({ pid: l.pid, desc: l.desc, uds: int(l.uds) || 1, precio: l.precio == null ? null : r2(l.precio), col: S.prods[l.pid] ? esColonia(S.prods[l.pid]) : !!l.col })), sug: (sug || []).slice() };
   $("iAdd").onclick = abrirPicker;
   $("iPickClose").onclick = cerrarPicker;
@@ -937,7 +943,8 @@ function renderSug() {
   $("iSug").querySelectorAll("[data-n]").forEach((b) => (b.onclick = () => { FL.sug.splice(+b.dataset.n, 1); renderSug(); }));
 }
 function leerFormIngreso() {
-  const d = { num: int($("iNum").value), fecha: $("iFecha").value, total: r2(num($("iTotal").value)), cremas: r2(num($("iCremas").value) || 0), colonias: r2(num($("iColonias").value) || 0) };
+  const d = { num: int($("iNum").value), fecha: $("iFecha").value, total: r2(num($("iTotal").value)), cremas: r2(num($("iCremas").value) || 0), colonias: r2(num($("iColonias").value) || 0),
+    clienta: nombrePropio($("iCli").value) || null, servicios: FC.servicios.length ? SERVICIOS.filter((x) => FC.servicios.includes(x)) : null };
   if (!d.num) return [null, "Falta el nº de hoja"];
   if (!validISO(d.fecha)) return [null, "Fecha no válida"];
   if (!(d.total > 0)) return [null, "Falta el total"];
@@ -1051,6 +1058,126 @@ function hojaManual(preset) {
 }
 $("ingManual").onclick = () => hojaManual();
 
+/* =====================================================================
+   CLIENTAS — nombre y tipo de tratamiento de cada hoja.
+   Solo nombre y categoría: nada de notas de piel, alergias ni salud.
+   ===================================================================== */
+let FC = { servicios: [] };
+const nombrePropio = (s) => String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase()
+  .replace(/(^|[\s\-'])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+const claveCli = (s) => normTxt(s);
+function nombresClientas() {
+  const m = new Map(); // clave → nombre más reciente
+  Object.values(S.ingresos).filter((x) => x && x.clienta).sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""))
+    .forEach((x) => m.set(claveCli(x.clienta), x.clienta));
+  return m;
+}
+function distancia(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+// ¿Es la misma clienta escrita de otra forma? («Marga Saenz» ≈ «Margarita Sáenz», «Maria Nunez» ≈ «María Núñez Tellado»)
+function parecida(a, b) {
+  const ta = claveCli(a).split(" ").filter(Boolean), tb = claveCli(b).split(" ").filter(Boolean);
+  if (!ta.length || !tb.length || ta.join(" ") === tb.join(" ")) return false;
+  const [cor, lar] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  if (cor.length === 1 && lar.length > 1) return false; // solo el nombre de pila: demasiado ambiguo
+  const usados = new Set();
+  return cor.every((t, n) => {
+    // Erratas de una letra solo en apellidos («Gomes» = «Gómez»); en el nombre, no («María» ≠ «Marta»)
+    const k = lar.findIndex((u, i) => !usados.has(i) && (u === t || (t.length >= 3 && u.length >= 3 && (u.startsWith(t) || t.startsWith(u))) || (n > 0 && i > 0 && t.length >= 5 && distancia(t, u) <= 1)));
+    if (k < 0) return false; usados.add(k); return true;
+  });
+}
+function formClienta(d) {
+  FC = { servicios: aLista(d.servicios).slice() };
+  const nombres = [...nombresClientas().values()].sort((a, b) => a.localeCompare(b));
+  return `<label>Clienta</label><input id="iCli" list="dlCli" autocomplete="off" autocapitalize="words" placeholder="Nombre y apellido" value="${esc(d.clienta || "")}">
+    <datalist id="dlCli">${nombres.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
+    <div id="iCliSug"></div>
+    <label>Tratamiento</label><div class="chips" id="iServ" style="flex-wrap:wrap">${SERVICIOS.map((x) => `<button type="button" class="chip${FC.servicios.includes(x) ? " on" : ""}" data-s="${esc(x)}">${esc(x)}</button>`).join("")}</div>`;
+}
+function enlazarClienta() {
+  if (!$("iCli")) return;
+  $("iServ").querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => {
+    const v = b.dataset.s, i = FC.servicios.indexOf(v);
+    if (i >= 0) FC.servicios.splice(i, 1); else FC.servicios.push(v);
+    b.classList.toggle("on", i < 0);
+  }));
+  const sug = () => {
+    const v = $("iCli").value.trim(), box = $("iCliSug");
+    if (!v) { box.innerHTML = ""; return; }
+    const nombres = nombresClientas();
+    if (nombres.has(claveCli(v))) { box.innerHTML = ""; return; }
+    const cand = [...nombres.values()].filter((n) => parecida(v, n)).slice(0, 3);
+    box.innerHTML = cand.length ? cand.map((n, i) => `<div class="sug"><div class="t">¿Es <b>${esc(n)}</b>?</div><button class="btn" data-c="${i}">Usar</button></div>`).join("")
+      : `<div class="muted" style="margin-top:4px">Clienta nueva</div>`;
+    box.querySelectorAll("[data-c]").forEach((b) => (b.onclick = () => { $("iCli").value = cand[+b.dataset.c]; sug(); }));
+  };
+  $("iCli").oninput = sug; sug();
+}
+function fichasClientas() {
+  const m = new Map();
+  Object.entries(S.ingresos).forEach(([id, x]) => {
+    if (!x || !x.clienta) return;
+    const k = claveCli(x.clienta);
+    const f = m.get(k) || { nombre: x.clienta, visitas: 0, gasto: 0, primera: x.fecha, ultima: x.fecha, serv: {}, hojas: [] };
+    f.visitas++; f.gasto = r2(f.gasto + (x.total || 0)); f.hojas.push(Object.assign({ id }, x));
+    if ((x.fecha || "") >= (f.ultima || "")) { f.ultima = x.fecha; f.nombre = x.clienta; }
+    if ((x.fecha || "") < (f.primera || "")) f.primera = x.fecha;
+    aLista(x.servicios).forEach((s) => (f.serv[s] = (f.serv[s] || 0) + 1));
+    m.set(k, f);
+  });
+  const hoy = dParse(hoyISO());
+  return [...m.values()].map((f) => Object.assign(f, { dias: Math.round((hoy - dParse(f.ultima)) / 864e5) }));
+}
+const servTxt = (serv) => Object.entries(serv).sort((a, b) => b[1] - a[1]).map(([s, n]) => s + (n > 1 ? " ×" + n : "")).join(", ");
+function abrirClientas(filtro, q) {
+  filtro = filtro || "todas"; q = q || "";
+  const todas = fichasClientas();
+  const conNombre = Object.values(S.ingresos).filter((x) => x && x.clienta).length, total = Object.keys(S.ingresos).length;
+  let l = todas.filter((f) => (filtro === "60" ? f.dias > 60 : filtro === "90" ? f.dias > 90 : true) && (!q || claveCli(f.nombre).includes(claveCli(q))));
+  // Inactivas: primero las que más han gastado (las que más interesa recuperar)
+  l.sort(filtro === "todas" ? (a, b) => (b.ultima || "").localeCompare(a.ultima || "") : (a, b) => b.gasto - a.gasto);
+  const ch = (k, t) => `<button type="button" class="chip${filtro === k ? " on" : ""}" data-f="${k}">${t}</button>`;
+  sheet(`<h2>Clientas</h2>
+    <div class="muted">${pl(todas.length, "clienta", "clientas")} · ${conNombre} de ${total} hojas con nombre</div>
+    <div class="chips">${ch("todas", "Todas")}${ch("60", "Más de 60 días sin venir")}${ch("90", "Más de 90 días")}</div>
+    <input id="cQ" placeholder="Buscar clienta" autocomplete="off" value="${esc(q)}">
+    <div class="list" style="margin-top:8px">${l.length ? l.map((f, i) => `<div class="item" data-i="${i}"><div class="t"><div class="d">${esc(f.nombre)}</div>
+      <div class="m">Última: ${fCorta(f.ultima)} (hace ${f.dias} días) · ${pl(f.visitas, "visita", "visitas")}${servTxt(f.serv) ? " · " + esc(servTxt(f.serv)) : ""}</div></div>
+      <div class="money">${eur(f.gasto)}</div></div>`).join("") : `<div class="empty">${todas.length ? "Ninguna con este filtro" : "Aún no hay hojas con nombre de clienta"}</div>`}</div>
+    <p class="muted" style="margin-top:10px">Solo se guarda el nombre y el tipo de tratamiento. Las clientas deben estar informadas (cartel en recepción) y, para mandarles promociones, haber dado permiso.</p>
+    <button class="btn ghost full" style="margin-top:8px" id="cBack">Cerrar</button>`);
+  $("cBack").onclick = closeSheet;
+  $("sheetRoot").querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => abrirClientas(b.dataset.f, $("cQ").value)));
+  let t = null;
+  $("cQ").oninput = () => { clearTimeout(t); t = setTimeout(() => { const v = $("cQ").value; abrirClientas(filtro, v); const i = $("cQ"); i.focus(); i.setSelectionRange(v.length, v.length); }, 300); };
+  $("sheetRoot").querySelectorAll(".item[data-i]").forEach((el) => (el.onclick = () => fichaClienta(l[+el.dataset.i], filtro, q)));
+}
+function fichaClienta(f, filtro, q) {
+  const hs = f.hojas.slice().sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "") || b.num - a.num);
+  sheet(`<h2>${esc(f.nombre)}</h2>
+    <div class="kpis" style="margin-top:8px">
+      <div class="kpi"><div class="v">${f.visitas}</div><div class="l">Visitas</div></div>
+      <div class="kpi"><div class="v">${eur(f.gasto)}</div><div class="l">Gastado</div></div>
+      <div class="kpi"><div class="v">${eur(f.visitas ? f.gasto / f.visitas : 0)}</div><div class="l">Ticket medio</div></div>
+      <div class="kpi"><div class="v">${f.dias}</div><div class="l">Días sin venir</div></div>
+    </div>
+    <div class="muted" style="margin-top:6px">Clienta desde ${fCorta(f.primera)}${servTxt(f.serv) ? " · " + esc(servTxt(f.serv)) : ""}</div>
+    <div class="list" style="margin-top:8px">${hs.map((h) => `<div class="item" data-id="${esc(h.id)}"><div class="t"><div class="d">${fCorta(h.fecha)} · Nº ${h.num}</div>
+      <div class="m">${esc(aLista(h.servicios).join(", ") || "Sin tratamiento indicado")}${h.cremas || h.colonias ? " · productos " + eur((h.cremas || 0) + (h.colonias || 0)) : ""}</div></div>
+      <div class="money">${eur(h.total)}</div></div>`).join("")}</div>
+    <button class="btn ghost full" style="margin-top:8px" id="cBack">Volver</button>`);
+  $("cBack").onclick = () => abrirClientas(filtro, q);
+  $("sheetRoot").querySelectorAll(".item[data-id]").forEach((el) => (el.onclick = () => editIngreso(el.dataset.id)));
+}
+$("ingClientas").onclick = () => abrirClientas();
+
 /* Fotos del talonario → cola de revisión */
 $("ingFotos").onchange = async (e) => {
   const files = [...e.target.files]; e.target.value = "";
@@ -1068,7 +1195,8 @@ $("ingFotos").onchange = async (e) => {
       if (!hojas.length) cola.push({ tipo: "ing", foto: img.dataUrl, datos: {}, nota: "La IA no encontró ninguna hoja en esta foto." });
       hojas.forEach((h) => cola.push({
         tipo: "ing", foto: img.dataUrl, origen: "foto",
-        datos: { num: int(h.numero) || null, fecha: validISO(h.fecha) ? h.fecha : null, total: num(h.total), cremas: num(h.cremas) || 0, colonias: num(h.colonias) || 0 },
+        datos: { num: int(h.numero) || null, fecha: validISO(h.fecha) ? h.fecha : null, total: num(h.total), cremas: num(h.cremas) || 0, colonias: num(h.colonias) || 0,
+          clienta: nombrePropio(h.clienta) || null, servicios: aLista(h.servicios).filter((x) => SERVICIOS.includes(x)) },
         sug: sugerencias(h.lineas),
         nota: [h.dudas, (h.lineas || []).map((l) => `${l.concepto || ""} ${l.importe != null ? l.importe : ""}`.trim()).filter(Boolean).join(" · ")].filter(Boolean).join(" — ")
       }));
