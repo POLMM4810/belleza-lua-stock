@@ -104,13 +104,22 @@
     return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
   function fechas(linea) {
-    const out = [];
+    const hall = []; // { i: posición en la línea, f: fecha ISO }, para devolverlas en orden de aparición
     let m;
-    const r1 = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g;
-    while ((m = r1.exec(linea))) { const f = isoFecha(m[1], m[2], m[3]); if (f) out.push(f); }
+    linea = String(linea || "");
+    // AAAA-MM-DD (Vistaprint, Amazon…): se leen primero y se tapan para que "2026-11-17" no se lea como 26/11/17
+    const r0 = /(^|[^\d])(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})(?!\d)/g;
+    let resto = linea;
+    while ((m = r0.exec(linea))) {
+      const ini = m.index + m[1].length, fin = m.index + m[0].length;
+      const f = isoFecha(m[4], m[3], m[2]);
+      if (f) { hall.push({ i: ini, f }); resto = resto.slice(0, ini) + " ".repeat(fin - ini) + resto.slice(fin); }
+    }
+    const r1 = /(^|[^\d])(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?!\d)/g;
+    while ((m = r1.exec(resto))) { const f = isoFecha(m[2], m[3], m[4]); if (f) hall.push({ i: m.index + m[1].length, f }); }
     const r2 = /(\d{1,2})\.?\s+(?:de\s+)?([a-záéíóú]+)\s+(?:de\s+|del\s+)?(\d{4})/gi;
-    while ((m = r2.exec(linea))) { const mm = MESES[m[2].toLowerCase()]; if (mm) { const f = isoFecha(m[1], mm, m[3]); if (f) out.push(f); } }
-    return out;
+    while ((m = r2.exec(resto))) { const mm = MESES[m[2].toLowerCase()]; if (mm) { const f = isoFecha(m[1], mm, m[3]); if (f) hall.push({ i: m.index, f }); } }
+    return hall.sort((a, b) => a.i - b.i).map((x) => x.f);
   }
 
   const RE_NIF = /\b(?:ES)?([ABCDEFGHJNPQRSUVW]-?\d{7}[0-9A-J]|\d{8}-?[A-Z]|[XYZ]\d{7}[A-Z]|IE\d{7}[A-Z]{1,2})\b/g;

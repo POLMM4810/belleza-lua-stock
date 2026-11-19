@@ -72,7 +72,7 @@ nav button .i{display:block;font-size:20px;line-height:1.2}
 /* Modo sencillo (móvil del centro): solo Ingresos y Stock del día a día */
 body.sencillo nav button[data-tab="tGas"],body.sencillo nav button[data-tab="tRes"],body.sencillo nav button[data-tab="tAju"],
 body.sencillo #ingExport,body.sencillo #newBtn,body.sencillo #stockSeg button[data-v="pedido"],body.sencillo #initBox,
-body.sencillo #pEdit,body.sencillo #pSep{display:none!important}
+body.sencillo #pEdit,body.sencillo #pSep,body.sencillo #impLbl{display:none!important}
 #salirSencillo{display:none}body.sencillo #salirSencillo{display:block}
 nav button.on{color:var(--brand);font-weight:700}
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:flex;align-items:flex-end;justify-content:center}
@@ -158,6 +158,7 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
       <label class="btn filebtn" style="margin:0;color:#fff">📄 Factura (PDF o foto)<input id="gasFiles" type="file" accept="application/pdf,image/*" multiple></label>
       <button class="btn sec" id="gasManual">＋ Sin factura</button>
     </div>
+    <input id="gasQ" type="search" placeholder="Buscar en todos los meses: proveedor, nº o importe" style="margin-bottom:12px">
     <div class="kpis" id="gasKpis"></div>
     <div class="list" id="gasCats"></div>
     <div class="list" id="gasList"></div>
@@ -178,6 +179,7 @@ input[readonly]{background:#f3eeea;color:var(--muted)}
         <button class="btn full" id="initBtn">Cargar catálogo inicial</button>
       </div>
       <div class="list" id="stockList"></div>
+      <label class="btn ghost full filebtn" id="impLbl" style="margin-top:12px">📥 Importar recuento desde Excel<input id="impXlsx" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
     </div>
     <div id="svScan" class="hidden">
       <div id="reader"></div>
@@ -324,6 +326,7 @@ const eur = (n) => (Number(n) || 0).toLocaleString("es-ES", { minimumFractionDig
 const num = (v) => { if (v == null || v === "") return null; const n = parseFloat(String(v).replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".")); return isFinite(n) ? n : null; };
 const int = (v) => { const n = parseInt(v, 10); return isFinite(n) ? n : 0; };
 const fechaHora = (ts) => new Date(ts).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const normTxt = (s) => String(s == null ? "" : s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 const fCorta = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "";
 const fLarga = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "";
 const dParse = (iso) => new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
@@ -463,7 +466,7 @@ async function comprimir(file, max) {
     const k = Math.min(1, (max || 1600) / Math.max(img.naturalWidth, img.naturalHeight));
     const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
     c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    const dataUrl = c.toDataURL("image/jpeg", 0.85);
+    const dataUrl = c.toDataURL("image/jpeg", 0.8);
     return { b64: dataUrl.split(",")[1], dataUrl };
   } finally { URL.revokeObjectURL(url); }
 }
@@ -474,11 +477,35 @@ async function ia(prompt, mime, b64, texto) {
   const parts = [{ text: prompt }];
   if (b64) parts.push({ inline_data: { mime_type: mime, data: b64 } });
   if (texto) parts.push({ text: "TEXTO DEL DOCUMENTO:\n" + texto });
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { temperature: 0, responseMimeType: "application/json" } })
-  });
-  const j = await r.json().catch(() => ({}));
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  // Sin "razonamiento" la respuesta llega en segundos; si el modelo no admite la opción, se repite sin ella
+  const pedir = async (rapido) => {
+    const generationConfig = { temperature: 0, responseMimeType: "application/json" };
+    if (rapido) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    const ctl = typeof AbortController === "function" ? new AbortController() : null;
+    const t = ctl ? setTimeout(() => ctl.abort(), 120000) : null;
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl ? ctl.signal : undefined,
+        body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }) });
+      const j = await r.json().catch(() => ({}));
+      return { r, j };
+    } finally { if (t) clearTimeout(t); }
+  };
+  let resp;
+  for (let intento = 1; ; intento++) {
+    try {
+      resp = await pedir(true);
+      if (resp.r.status === 400 && /thinking/i.test(JSON.stringify(resp.j))) resp = await pedir(false);
+      if ((resp.r.status === 429 || resp.r.status >= 500) && intento < 2) { await new Promise((ok) => setTimeout(ok, 4000)); continue; }
+      break;
+    } catch (err) {
+      // "Load failed" (iPhone) / "Failed to fetch": la conexión se cortó por el camino; se reintenta una vez
+      if (intento < 2) { await new Promise((ok) => setTimeout(ok, 2000)); continue; }
+      throw new Error(err && err.name === "AbortError" ? "la IA tardó demasiado en responder"
+        : "se cortó la conexión con la IA. Mantén la app abierta y en pantalla mientras lee, y prueba otra vez");
+    }
+  }
+  const { r, j } = resp;
   if (!r.ok) throw new Error((j.error && j.error.message) || ("Error " + r.status));
   const txt = (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map((p) => p.text || "").join("");
   return JSON.parse(txt.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim());
@@ -1074,7 +1101,24 @@ function porCategoria(lista) {
   lista.forEach((x) => { const c = CATS.includes(x.categoria) ? x.categoria : "OTROS"; t[c] = r2(t[c] + (x.total || 0)); });
   return t;
 }
+function buscarGastos(q) {
+  const t = normTxt(q), imp = num(q);
+  return Object.entries(S.gastos).map(([id, x]) => Object.assign({ id }, x)).filter((x) =>
+    normTxt([x.proveedor, x.numero, x.nif, x.categoria, x.concepto].join(" ")).includes(t) || (imp != null && Math.abs((x.total || 0) - imp) < 0.005))
+    .sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+}
 function renderGas() {
+  const q = ($("gasQ").value || "").trim();
+  show("gasKpis", !q); show("gasCats", !q);
+  if (q) { // búsqueda en todos los meses y años: así aparecen también los que se guardaron con la fecha mal
+    const r = buscarGastos(q);
+    $("gasList").innerHTML = r.length ? r.slice(0, 200).map((x) => `<div class="item" data-id="${esc(x.id)}"><div class="t">
+      <div class="d">${esc(x.proveedor || x.categoria)}</div>
+      <div class="m">${esc(fLarga(x.fecha))} · ${esc(x.categoria)}${x.numero ? " · " + esc(x.numero) : ""}</div></div>
+      <div class="money">${eur(x.total)}</div></div>`).join("") : `<div class="empty">Ningún gasto coincide con «${esc(q)}»</div>`;
+    $("gasList").querySelectorAll(".item").forEach((el) => (el.onclick = () => editGasto(el.dataset.id)));
+    return;
+  }
   const lista = gasDelMes(S.mes).map(([id, x]) => Object.assign({ id }, x));
   const tot = r2(lista.reduce((s, x) => s + (x.total || 0), 0));
   const iva = r2(lista.reduce((s, x) => s + (x.iva || 0), 0));
@@ -1090,6 +1134,8 @@ function renderGas() {
       <div class="money">${eur(x.total)}</div></div>`).join("") : `<div class="empty">Sin gastos en ${mesNombre(S.mes)}</div>`;
   $("gasList").querySelectorAll(".item").forEach((el) => (el.onclick = () => editGasto(el.dataset.id)));
 }
+
+$("gasQ").addEventListener("input", renderGas);
 
 function formGasto(d, titulo, ctx) {
   const lineas = (ctx && ctx.lineas) || [];
@@ -1233,13 +1279,24 @@ $("gasFiles").onchange = async (e) => {
             const ri = await ia(promptGasto(), null, null, texto.slice(0, 15000));
             item.datos = Object.assign(datosIA(ri), { categoria: item.datos.categoria });
             item.nota = "Leída con IA: revisa los datos.";
+          } else if (r.tipoDoc === "factura" && iaDisponible()) {
+            // Importes leídos sin IA, pero faltan datos de cabecera: la IA solo rellena los huecos
+            const huecos = ["proveedor", "nif", "numero", "fecha"].filter((k) => !item.datos[k]);
+            if (huecos.length) {
+              try {
+                const di = datosIA(await ia(promptGasto(), null, null, texto.slice(0, 15000)));
+                const puestos = huecos.filter((k) => di[k]);
+                puestos.forEach((k) => (item.datos[k] = di[k]));
+                if (puestos.length) item.nota = [item.nota, "La IA completó: " + puestos.join(", ") + " (revísalo)"].filter(Boolean).join(" · ");
+              } catch (err) { console.error(err); item.nota = [item.nota, "La IA no pudo completar los datos que faltan (" + err.message + ")"].filter(Boolean).join(" · "); }
+            }
           }
         } else if (iaDisponible()) {
           const ri = await ia(promptGasto(), "application/pdf", await aBase64(f));
           item.datos = datosIA(ri); item.nota = "PDF escaneado, leído con IA: revisa los datos.";
         } else item.nota = "PDF escaneado y sin clave de IA: escribe los datos.";
       } else {
-        const img = await comprimir(f, 1800);
+        const img = await comprimir(f, 1600);
         item.foto = img.dataUrl;
         if (iaDisponible()) { item.datos = datosIA(await ia(promptGasto(), "image/jpeg", img.b64)); item.nota = "Leída con IA: revisa los datos."; }
         else item.nota = "Sin clave de IA: escribe los datos mirando la foto.";
@@ -1315,6 +1372,181 @@ async function aplicarStock(lineas, ref) {
   }
   return n;
 }
+
+/* =====================================================================
+   IMPORTAR RECUENTO DESDE EXCEL
+   Hoja «Recuento»: EAN | Producto | Unidades (resto de columnas, ignoradas)
+   Hoja «Altas…» (opcional): EAN | Producto | Proveedor | Categoría | Uso | Unidades
+   La hoja de testers no se lee.
+   ===================================================================== */
+const CATS_PROD = ["Producto (venta o cabina)", "Cofre / pack", "Colonia", "Muestras y testers", "Material de apoyo", "Consumible / accesorio cabina"];
+function celdaXl(v) {
+  if (v == null) return "";
+  if (v instanceof Date) return v;
+  if (typeof v === "object") {
+    if ("result" in v) return celdaXl(v.result);
+    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join("");
+    if ("text" in v) return celdaXl(v.text);
+    return "";
+  }
+  return v;
+}
+function leerHojaXl(ws) {
+  if (!ws) return null;
+  const cab = [];
+  ws.getRow(1).eachCell({ includeEmpty: true }, (c, i) => (cab[i] = normTxt(celdaXl(c.value))));
+  const col = (...ks) => cab.findIndex((h) => h && ks.some((k) => h.includes(k)));
+  const c = { ean: col("ean", "codigo de barras"), desc: col("producto", "descripcion"), uds: col("unidades", "uds", "cantidad"),
+    prov: col("proveedor"), cat: col("categoria"), uso: col("uso") };
+  if (c.desc < 1) return null;
+  const out = [];
+  ws.eachRow((row, n) => {
+    if (n === 1) return;
+    const g = (i) => (i > 0 ? celdaXl(row.getCell(i).value) : "");
+    const desc = String(g(c.desc) || "").replace(/\s+/g, " ").trim();
+    if (!desc || /^total/i.test(desc)) return;
+    const e = g(c.ean);
+    const ean = typeof e === "number" ? String(Math.round(e)) : String(e || "").replace(/\D/g, "");
+    const u = g(c.uds);
+    const uds = typeof u === "number" ? u : num(u);
+    out.push({ fila: n, ean: ean.length >= 8 ? ean : "", desc, uds, prov: String(g(c.prov) || "").trim(), cat: String(g(c.cat) || "").trim(), uso: String(g(c.uso) || "").trim() });
+  });
+  return out;
+}
+const STOP_IMP = new Set(["t", "de", "del", "la", "el", "y", "con", "para", "e", "en"]);
+function fichas(s) { return normTxt(s).replace(/(\d+) ml\b/g, "$1ml").split(" ").filter((w) => w && !STOP_IMP.has(w)); }
+function parecidos(desc, excluir) {
+  const a = new Set(fichas(desc));
+  if (!a.size) return [];
+  return Object.entries(S.prods).filter(([k]) => k !== excluir).map(([k, p]) => {
+    const b = new Set(fichas(p.desc)); let comun = 0; a.forEach((w) => { if (b.has(w)) comun++; });
+    return { k, nota: b.size ? comun / Math.min(a.size, b.size) + comun / Math.max(a.size, b.size) / 10 : 0 };
+  }).filter((x) => x.nota >= 0.6).sort((x, y) => y.nota - x.nota).slice(0, 4).map((x) => x.k);
+}
+function planImportacion(rec, altas) {
+  const avisos = [], porClave = new Map();
+  rec.forEach((r) => {
+    if (r.uds == null || r.uds < 0 || Math.round(r.uds) !== r.uds) { avisos.push(`Fila ${r.fila}: «${r.desc}» no tiene unas unidades válidas; no se importa`); return; }
+    const k = r.ean || "n:" + normTxt(r.desc);
+    const prev = porClave.get(k);
+    if (prev) { prev.uds += r.uds; prev.filas.push(r.fila); } else porClave.set(k, Object.assign({ filas: [r.fila] }, r));
+  });
+  const items = [];
+  for (const r of porClave.values()) {
+    if (r.filas.length > 1) avisos.push(`«${r.desc}» aparece en ${r.filas.length} filas: se suman (${r.uds})`);
+    const alta = (altas || []).find((a) => (r.ean && a.ean === r.ean) || normTxt(a.desc) === normTxt(r.desc)) || null;
+    let pid = buscarEan(r.ean), modo = pid ? "ean" : "";
+    if (!pid) {
+      const iguales = Object.keys(S.prods).filter((k) => normTxt(S.prods[k].desc) === normTxt(r.desc));
+      if (iguales.length === 1) { pid = iguales[0]; modo = "nombre"; }
+    }
+    const cands = modo === "ean" ? [] : parecidos(r.desc, pid);
+    items.push({ r, alta, modo, cands, accion: pid || "nuevo" });
+  }
+  // Primero lo que hay que mirar (nuevos y por nombre), después lo emparejado por código
+  const orden = { "": 0, nombre: 1, ean: 2 };
+  items.sort((a, b) => orden[a.modo] - orden[b.modo] || a.r.desc.localeCompare(b.r.desc));
+  return { items, avisos };
+}
+function filaImp(it, i) {
+  const r = it.r;
+  const actual = (pid) => S.prods[pid] ? `stock ${S.prods[pid].stock || 0} → ${r.uds}` : "";
+  if (it.modo === "ean") {
+    const p = S.prods[it.accion];
+    return `<div class="item" style="cursor:default"><div class="t"><div class="d">${esc(p.desc)}</div>
+      <div class="m">Por código · ${actual(it.accion)}</div></div><div class="badge ok">${r.uds}</div></div>`;
+  }
+  const opts = [`<option value="nuevo" ${it.accion === "nuevo" ? "selected" : ""}>Crear producto nuevo${it.alta ? " (datos de la hoja Altas)" : ""}</option>`]
+    .concat([...new Set([it.accion].concat(it.cands))].filter((k) => k !== "nuevo" && S.prods[k])
+      .map((k) => `<option value="${esc(k)}" ${it.accion === k ? "selected" : ""}>Es: ${esc(S.prods[k].desc)} (stock ${S.prods[k].stock || 0})</option>`))
+    .concat([`<option value="omitir">No importar esta línea</option>`]);
+  return `<div class="item" style="cursor:default;display:block"><div class="d">${esc(r.desc)} · <b>${r.uds}</b></div>
+    <div class="m">${it.modo === "nombre" ? "Encontrado por el nombre: revísalo" : "No está en la app"}${r.ean ? " · " + esc(r.ean) : " · sin código"}</div>
+    <select data-i="${i}" style="margin-top:6px">${opts.join("")}</select></div>`;
+}
+function previsualizarImportacion(plan, nombre) {
+  const it = plan.items;
+  const nEan = it.filter((x) => x.modo === "ean").length, nNom = it.filter((x) => x.modo === "nombre").length, nNue = it.filter((x) => !x.modo).length;
+  const total = it.reduce((s, x) => s + x.r.uds, 0);
+  sheet(`<h2>Importar recuento</h2><div class="muted">${esc(nombre)}</div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="v">${nEan}</div><div class="l">Encontrados por código</div></div>
+      <div class="kpi"><div class="v">${nNom}</div><div class="l">Encontrados por nombre</div></div>
+      <div class="kpi"><div class="v">${nNue}</div><div class="l">No están en la app</div></div>
+      <div class="kpi"><div class="v">${total}</div><div class="l">Unidades en el Excel</div></div>
+    </div>
+    ${plan.avisos.length ? `<div class="card" style="margin-top:8px">${plan.avisos.map((a) => `<div class="muted">⚠ ${esc(a)}</div>`).join("")}</div>` : ""}
+    <p class="muted">El stock de cada línea pasa a ser el del Excel. Los productos que no están en el Excel no se tocan. Se puede deshacer hoy desde Historial.</p>
+    <div class="list">${it.map(filaImp).join("")}</div>
+    <button class="btn full" style="margin-top:12px" id="impOk">Aplicar recuento</button>
+    <button class="btn ghost full" style="margin-top:8px" id="impNo">Cancelar</button>`);
+  $("sheetRoot").querySelectorAll("select[data-i]").forEach((s) => (s.onchange = () => { it[+s.dataset.i].accion = s.value; }));
+  $("impNo").onclick = closeSheet;
+  $("impOk").onclick = async () => {
+    const n = it.filter((x) => x.accion !== "omitir").length;
+    const nuevos = it.filter((x) => x.accion === "nuevo").length;
+    if (!n) return toast("No hay nada que importar");
+    if (!confirm(`Se aplicará el recuento de ${pl(n, "producto", "productos")}${nuevos ? ` (${nuevos} se crean nuevos)` : ""}. ¿Seguir?`)) return;
+    $("impOk").disabled = true; busy("Aplicando el recuento…");
+    try {
+      const hechos = await aplicarImportacion(it);
+      busy(); closeSheet(); stockView("hist");
+      toast(`Recuento aplicado: ${pl(hechos, "producto", "productos")}`);
+    } catch (e) { console.error(e); busy(); $("impOk").disabled = false; alert("Se paró a medias: " + e.message + "\nLo ya aplicado está en Historial (se puede deshacer)."); }
+  };
+}
+async function aplicarImportacion(items) {
+  const grupo = db.ref("movimientos").push().key;
+  const ref = "Recuento Excel " + fCorta(hoyISO());
+  const finales = new Map();
+  for (const it of items) {
+    if (it.accion === "omitir") continue;
+    let pid = it.accion, nuevo = false;
+    if (pid === "nuevo") {
+      const a = it.alta || {};
+      const ean = it.r.ean && !buscarEan(it.r.ean) ? it.r.ean : "";
+      pid = ean || db.ref("productos").push().key;
+      const p = { ean, cod: "", desc: it.r.desc, prov: a.prov || it.r.prov || "Germaine de Capuccini",
+        cat: CATS_PROD.includes(a.cat) ? a.cat : "Producto (venta o cabina)", uso: USOS.includes(a.uso) ? a.uso : "Revisar (Miriam)",
+        coste: null, pvp: null, min: 0, stock: 0 };
+      await db.ref("productos/" + pid).set(p);
+      S.prods[pid] = p; nuevo = true;
+    } else if (!S.prods[pid]) continue;
+    else if (it.r.ean && !S.prods[pid].ean && !buscarEan(it.r.ean)) { // completa el código de barras que faltaba
+      await db.ref("productos/" + pid + "/ean").set(it.r.ean); S.prods[pid].ean = it.r.ean;
+    }
+    const f = finales.get(pid);
+    if (f) f.uds += it.r.uds; else finales.set(pid, { uds: it.r.uds, nuevo });
+  }
+  let n = 0;
+  for (const [pid, f] of finales) {
+    let delta = 0;
+    const res = await db.ref("productos/" + pid + "/stock").transaction((cur) => { delta = f.uds - (cur || 0); return f.uds; });
+    if (!res.committed) throw new Error("no se pudo guardar el stock de " + S.prods[pid].desc);
+    const p = S.prods[pid];
+    await db.ref("movimientos").push({ ts: firebase.database.ServerValue.TIMESTAMP, pid, desc: p.desc, tipo: "ajuste", uds: f.uds, bnf: 0, delta,
+      coste: p.coste == null ? null : p.coste, precio: null, email: S.user.email, ref, grupo, nuevo: f.nuevo || null });
+    n++;
+  }
+  return n;
+}
+$("impXlsx").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  busy("Leyendo el Excel…");
+  try {
+    await cargar("vendor/exceljs.min.js");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await f.arrayBuffer());
+    const hoja = (pref) => wb.worksheets.find((w) => normTxt(w.name).startsWith(pref));
+    const wsRec = hoja("recuento") || wb.worksheets.find((w) => !/tester|alta/.test(normTxt(w.name)));
+    const rec = leerHojaXl(wsRec);
+    busy();
+    if (!rec) return alert("No encuentro la columna «Producto» en la hoja del recuento. La primera fila debe tener: EAN | Producto | Unidades.");
+    if (!rec.length) return toast("El Excel no tiene líneas");
+    previsualizarImportacion(planImportacion(rec, leerHojaXl(hoja("altas")) || []), f.name);
+  } catch (err) { console.error(err); busy(); alert("No se pudo leer el Excel: " + err.message); }
+};
 
 document.querySelectorAll("#stockSeg button").forEach((b) => (b.onclick = () => stockView(b.dataset.v)));
 function stockView(v) {
@@ -1535,6 +1767,34 @@ async function undoMove(mid) {
       toast("Separación deshecha");
     } catch (e) { console.error(e); toast("No se pudo deshacer"); }
     finally { S.deshaciendo = null; }
+    return;
+  }
+  if (m.tipo === "ajuste" && m.grupo) { // recuento importado desde Excel: se deshace entero
+    // El lote se lee de Firebase (el historial en pantalla solo guarda los últimos 300 movimientos)
+    const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+    let lote = [];
+    try {
+      const snap = await db.ref("movimientos").orderByChild("ts").startAt(hoy0.getTime()).once("value");
+      snap.forEach((c) => { const v = c.val(); if (v && v.grupo === m.grupo) lote.push(Object.assign({ id: c.key }, v)); });
+    } catch (e) { console.error(e); return toast("No se pudo leer el recuento importado"); }
+    if (!lote.length) return toast("No se encuentra el recuento importado");
+    if (!confirm(`Este recuento se importó desde Excel (${pl(lote.length, "producto", "productos")}). ¿Deshacer toda la importación?`)) return;
+    try {
+      const upd = {};
+      for (const x of lote) {
+        upd["movimientos/" + x.id] = null;
+        if (!S.prods[x.pid]) continue;
+        let otros = true;
+        if (x.nuevo) { // lo creó la importación: se borra si no tiene ningún otro movimiento
+          const sp = await db.ref("movimientos").orderByChild("pid").equalTo(x.pid).once("value");
+          otros = false; sp.forEach((c) => { if ((c.val() || {}).grupo !== m.grupo) otros = true; });
+        }
+        if (x.nuevo && !otros) upd["productos/" + x.pid] = null;
+        else upd["productos/" + x.pid + "/stock"] = firebase.database.ServerValue.increment(-x.delta);
+      }
+      await db.ref().update(upd);
+      toast("Importación deshecha");
+    } catch (e) { console.error(e); toast("No se pudo deshacer"); }
     return;
   }
   if (!confirm(`¿Deshacer "${TIPOS[m.tipo]}" de ${m.desc} (${m.delta > 0 ? "+" : ""}${m.delta})?`)) return;

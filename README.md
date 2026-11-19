@@ -110,13 +110,25 @@ Al subir el PDF de una factura de Yodeyma, la pantalla de revisión ofrece **Dar
 - Abonos (facturas rectificativas) en negativo; facturas con suplidos sin IVA; importes con 4 decimales (O2).
 - Cuando la factura trae «TOTAL FACTURA» y «TOTAL A PAGAR» distintos (Germaine con bonificaciones o pagos a cuenta), se toma el total de la factura (base + IVA) y se avisa del importe a pagar.
 - Justificantes del banco (ING): los **recibos de autónomos** y los **pagos de modelos 115/130/303** se registran como gasto sin factura con su importe, fecha y periodo. Los **adeudos y transferencias** que pagan una factura, los extractos y las declaraciones presentadas muestran un aviso ⚠ porque no son facturas (guardarlos contaría el gasto dos veces).
+- Fechas en formato AAAA-MM-DD (Vistaprint, Amazon…) se leen bien.
+- Si los importes se leen sin IA pero falta el proveedor, el NIF, el nº o la fecha, y hay clave de IA, la IA rellena **solo los huecos** (no toca importes) y lo indica en la pantalla de revisión.
+- En Gastos, el buscador de arriba busca en **todos los meses y años** por proveedor, nº de factura, NIF o importe (sirve para encontrar un gasto guardado con la fecha mal).
 - Probado con las 511 facturas en PDF del chat de facturas (2022-2026): en las 413 facturas, el total sale en el 94 % y base + IVA cuadran en el 92 %; los 19 recibos de autónomos y los 4 pagos de modelos salen completos.
+
+## Importar un recuento desde Excel (Stock → Productos → «Importar recuento desde Excel»)
+- Hoja **Recuento**: columnas `EAN | Producto | Unidades` (las demás columnas se ignoran). La hoja de testers no se lee.
+- Hoja **Altas** (opcional): `EAN | Producto | Proveedor | Categoría | Uso | Unidades`, con los datos de los productos que aún no están en la app.
+- Se empareja por código de barras y, si no hay, por el nombre exacto. Antes de aplicar sale una vista previa: los encontrados por código, los encontrados por nombre (revisar) y los que no están, con un desplegable para cada uno: **crear nuevo**, **es este producto** (parecidos) o **no importar**.
+- El stock de cada línea pasa a ser el del Excel; lo que no está en el Excel no se toca. Si un producto de la app no tiene código de barras y el Excel sí, se le añade.
+- Todo queda en Historial como un solo recuento: tocando cualquiera de sus líneas el mismo día se deshace la importación entera (los productos creados por ella se borran si no se han usado).
+- Haz una copia de seguridad antes de importar.
 
 ## Consejos para las fotos del talonario
 - Una hoja por foto, de frente y con buena luz (la foto oscura o movida falla).
 - Que se vean el número rojo, la fecha y el total.
 - Siempre aparece una pantalla de revisión antes de guardar: comprueba el total.
 - Se pueden seleccionar varias fotos a la vez desde la galería.
+- Mientras lee, deja la app abierta y en pantalla: si el móvil cambia de app o se bloquea, el iPhone corta la conexión («Load failed»). La app reintenta una vez sola y, si vuelve a fallar, lo explica.
 
 ## Copia de seguridad
 - **Ajustes → Copia de seguridad → Descargar copia**: un archivo `COPIA_BELLEZA_LUA_AAAA-MM-DD.json` con ingresos, gastos, stock, movimientos, proveedores y ajustes (sin la clave de IA). En el iPhone: Guardar en Archivos / iCloud.
