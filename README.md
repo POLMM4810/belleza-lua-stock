@@ -154,3 +154,10 @@ La clave de IA y el histórico se conservan si la copia no los trae. Los usuario
 - Las fotos se envían a Google solo si hay clave de IA. Con usuarios del EEE, Google aplica a los datos el trato de los servicios de pago (no se usan para entrenar); compruébalo en las condiciones de la API de Gemini.
 - La app no guarda las fotos: conserva el talonario y las facturas originales.
 - Los proveedores no reconocidos de serie se aprenden al guardar la primera factura (Ajustes → Proveedores aprendidos).
+
+## Clientas (nombre y tratamiento)
+- Cada hoja guarda `clienta` (nombre y apellido) y `servicios` (Facial, Corporal, Masaje, Depilación, Manos y pies, Aparatología, Otro). La IA los propone desde la foto; Miriam los confirma.
+- Al escribir el nombre, la app propone la clienta que ya existe si se parece («Marga Saenz» → «Margarita Sáenz») para no duplicarla.
+- Ingresos → 👥 Clientas: última visita, visitas, gasto, tratamientos y filtros «más de 60 / 90 días sin venir» (ordenadas por gasto).
+- Solo nombre y categoría de tratamiento: no guardar notas de piel, alergias ni salud. Informar a las clientas en recepción; para promociones, su permiso.
+- El Excel de Declarando no cambia.
