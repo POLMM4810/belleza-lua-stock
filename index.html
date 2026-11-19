@@ -471,42 +471,54 @@ async function comprimir(file, max) {
   } finally { URL.revokeObjectURL(url); }
 }
 function iaDisponible() { return !!(S.cfg.gemini_key || "").trim(); }
+// Aviso visible mientras la IA reintenta (si hay una pantalla de "cargando" abierta)
+function avisoIA(txt) { try { if ($("busy") && !$("busy").classList.contains("hidden")) $("busyTxt").textContent = txt; } catch (e) {} }
+const esperar = (ms) => new Promise((ok) => setTimeout(ok, ms));
 async function ia(prompt, mime, b64, texto) {
   const key = (S.cfg.gemini_key || "").trim();
-  const model = (S.cfg.gemini_model || "gemini-flash-latest").trim();
+  const modelo1 = (S.cfg.gemini_model || "gemini-flash-latest").trim();
+  const MODELO_RESPALDO = "gemini-flash-lite-latest"; // más ligero: suele responder cuando el principal está saturado
   const parts = [{ text: prompt }];
   if (b64) parts.push({ inline_data: { mime_type: mime, data: b64 } });
   if (texto) parts.push({ text: "TEXTO DEL DOCUMENTO:\n" + texto });
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const urlDe = (m) => `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(key)}`;
   // Sin "razonamiento" la respuesta llega en segundos; si el modelo no admite la opción, se repite sin ella
-  const pedir = async (rapido) => {
+  const pedir = async (model, rapido) => {
     const generationConfig = { temperature: 0, responseMimeType: "application/json" };
     if (rapido) generationConfig.thinkingConfig = { thinkingBudget: 0 };
     const ctl = typeof AbortController === "function" ? new AbortController() : null;
-    const t = ctl ? setTimeout(() => ctl.abort(), 120000) : null;
+    const t = ctl ? setTimeout(() => ctl.abort(), 45000) : null; // 45 s por intento (antes 120 s colgado)
     try {
-      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl ? ctl.signal : undefined,
+      const r = await fetch(urlDe(model), { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl ? ctl.signal : undefined,
         body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }) });
       const j = await r.json().catch(() => ({}));
       return { r, j };
     } finally { if (t) clearTimeout(t); }
   };
-  let resp;
-  for (let intento = 1; ; intento++) {
+  const MAX = 6, ESPERA = [3000, 5000, 8000, 12000, 15000];
+  let resp, ultimoError = "";
+  for (let intento = 1; intento <= MAX; intento++) {
+    // Los 3 primeros intentos con el modelo elegido; si sigue saturado, se prueba el ligero
+    const model = intento <= 3 ? modelo1 : MODELO_RESPALDO;
     try {
-      resp = await pedir(true);
-      if (resp.r.status === 400 && /thinking/i.test(JSON.stringify(resp.j))) resp = await pedir(false);
-      if ((resp.r.status === 429 || resp.r.status >= 500) && intento < 2) { await new Promise((ok) => setTimeout(ok, 4000)); continue; }
+      resp = await pedir(model, true);
+      if (resp.r.status === 400 && /thinking/i.test(JSON.stringify(resp.j))) resp = await pedir(model, false);
+      const st = resp.r.status;
+      if (st === 429 || st >= 500) {
+        ultimoError = (resp.j.error && resp.j.error.message) || ("Error " + st);
+        if (intento < MAX) { avisoIA(`La IA está saturada. Reintentando (${intento + 1} de ${MAX})…`); await esperar(ESPERA[intento - 1]); continue; }
+      }
       break;
     } catch (err) {
-      // "Load failed" (iPhone) / "Failed to fetch": la conexión se cortó por el camino; se reintenta una vez
-      if (intento < 2) { await new Promise((ok) => setTimeout(ok, 2000)); continue; }
-      throw new Error(err && err.name === "AbortError" ? "la IA tardó demasiado en responder"
-        : "se cortó la conexión con la IA. Mantén la app abierta y en pantalla mientras lee, y prueba otra vez");
+      // "Load failed" (iPhone) / "Failed to fetch" / tiempo agotado: se reintenta
+      ultimoError = err && err.name === "AbortError" ? "la IA tardó demasiado en responder"
+        : "se cortó la conexión con la IA. Mantén la app abierta y en pantalla mientras lee";
+      if (intento < MAX) { avisoIA(`Sin respuesta. Reintentando (${intento + 1} de ${MAX})…`); await esperar(ESPERA[intento - 1]); continue; }
+      throw new Error(ultimoError + ". Prueba otra vez en un par de minutos o escribe los datos a mano");
     }
   }
   const { r, j } = resp;
-  if (!r.ok) throw new Error((j.error && j.error.message) || ("Error " + r.status));
+  if (!r.ok) throw new Error(r.status === 429 || r.status >= 500 ? "la IA de Google está saturada ahora mismo. Prueba en unos minutos o escribe los datos a mano" : ((j.error && j.error.message) || ("Error " + r.status)));
   const txt = (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map((p) => p.text || "").join("");
   return JSON.parse(txt.replace(/^```(json)?/i, "").replace(/```\s*$/, "").trim());
 }
