@@ -38,7 +38,7 @@ Se genera sobre `plantilla_mes.xlsx` (el Excel mensual de siempre, vacío de dat
 
 ## Archivos (súbelos todos a la raíz del repositorio)
 
-`index.html`, `lector.js`, `excel_anual.js`, `plantilla_mes.xlsx`, `catalogo.json`, `database.rules.json`, `manifest.json`, `icon-180.png`, `icon-512.png`, `README.md` y la carpeta `vendor/` (contiene `exceljs.min.js`, licencia MIT)
+`index.html`, `lector.js`, `excel_anual.js`, `plantilla_mes.xlsx`, `catalogo.json`, `database.rules.json`, `manifest.json`, `icon-180.png`, `icon-512.png`, `README.md` y la carpeta `vendor/` (contiene `exceljs.min.js`, licencia MIT, y `pdf.worker.min.js` de pdf.js 3.11.174, licencia Apache-2.0)
 
 ## Puesta en marcha (unos 30 minutos)
 
