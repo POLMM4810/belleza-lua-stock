@@ -299,6 +299,11 @@ const LIBS = {
   pdfWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
   qr: "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"
 };
+/* Integridad SRI (sha384) de los scripts externos. Si se cambia una versión en LIBS, hay que recalcular su hash aquí. */
+const SRI = {
+  [LIBS.pdf]: "sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e",
+  [LIBS.qr]: "sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+"
+};
 
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth();
@@ -352,7 +357,9 @@ function busy(txt) { $("busyTxt").textContent = txt || ""; show("busy", !!txt); 
 const cargadas = {};
 function cargar(url) {
   if (!cargadas[url]) cargadas[url] = new Promise((res, rej) => {
-    const s = document.createElement("script"); s.src = url; s.onload = res; s.onerror = () => { delete cargadas[url]; rej(new Error("No se pudo cargar " + url)); };
+    const s = document.createElement("script");
+    if (SRI[url]) { s.integrity = SRI[url]; s.crossOrigin = "anonymous"; s.referrerPolicy = "no-referrer"; }
+    s.src = url; s.onload = res; s.onerror = () => { delete cargadas[url]; rej(new Error("No se pudo cargar " + url)); };
     document.head.appendChild(s);
   });
   return cargadas[url];
