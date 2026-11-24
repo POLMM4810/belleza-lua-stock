@@ -1397,8 +1397,25 @@ function datosIA(r) {
     fecha: validISO(r.fecha) ? r.fecha : "", base: num(r.base), tipoIva: num(r.tipo_iva), iva: num(r.cuota_iva), retencion: num(r.retencion) || 0, total: num(r.total)
   };
 }
+/* Sin NIF (fotos, albaranes): busca el proveedor por su nombre en las pistas conocidas y en los aprendidos */
+const normProv = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase()
+  .replace(/\b(S\.?\s?A\.?\s?U?|S\.?\s?L\.?\s?U?)\.?$/g, "").replace(/[^A-Z0-9]/g, "");
+function nifPorNombre(nombre) {
+  if (!nombre) return "";
+  const pista = (Lector.PISTAS || []).find(([re]) => re.test(nombre));
+  if (pista) return pista[1];
+  const n = normProv(nombre);
+  if (n.length < 5) return "";
+  const hit = Object.entries(S.provs).find(([, p]) => { const m = normProv(p.nombre); return m.length >= 5 && (m === n || m.includes(n) || n.includes(m)); });
+  return hit ? hit[0] : "";
+}
 function completarProveedor(d) {
-  const p = S.provs[d.nif] || Lector.PROVEEDORES[d.nif];
+  let p = S.provs[d.nif] || Lector.PROVEEDORES[d.nif];
+  if (!p) {
+    const n = nifPorNombre(d.proveedor);
+    p = n ? (S.provs[n] || Lector.PROVEEDORES[n]) : null;
+    if (p && !d.nif) d.nif = n; // solo rellena el NIF si venía vacío; nunca cambia uno leído
+  }
   if (p) { d.proveedor = d.proveedor || p.nombre; d.categoria = d.categoria || p.cat; }
   if (!d.categoria) d.categoria = "OTROS";
   return d;

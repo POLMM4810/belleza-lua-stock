@@ -410,7 +410,7 @@
     return out;
   }
 
-  const api = { PROVEEDORES, lineasYodeyma, numero, importes, fechas, nifs, lineasPdf, leerFactura, leerJustificante, lineasGdC, cuadrar };
+  const api = { PROVEEDORES, PISTAS, lineasYodeyma, numero, importes, fechas, nifs, lineasPdf, leerFactura, leerJustificante, lineasGdC, cuadrar };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Lector = api;
 })(typeof window !== "undefined" ? window : globalThis);
