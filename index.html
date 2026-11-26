@@ -354,12 +354,12 @@ const aLista = (v) => (Array.isArray(v) ? v.filter(Boolean) : v && typeof v === 
 const FRASES_GDC = [
   [/ TIME ?EXPERT /g, " TIMEXPERT "], [/ TRIDES /g, " TIMEXPERT RIDES "], [/ TSUN /g, " TIMEXPERT SUN "],
   [/ WRINK(?:LE)? ?L(?:ESS)? /g, " WRINKLESS "], [/ LIFT IN /g, " LIFTIN "], [/ R C /g, " RADIANCE C "], [/ S RUM /g, " SERUM "],
-  [/ EXP? LAB /g, " EXPERT LAB "], [/ ROYAL J /g, " ROYAL JELLY "], [/ EXC /g, " EXCEL THERAPY "], [/ O 0?2 /g, " 02 "], [/ C OJ(?:OS)? /g, " CONTORNO OJOS "],
+  [/ EXP? LAB /g, " EXPERT LAB "], [/ ROYAL J /g, " ROYAL JELLY "], [/ EXC /g, " EXCEL THERAPY "], [/ O 0?2 /g, " 02 "], [/ C OJ(?:OS)? /g, " CONTORNO OJOS "], [/ S R N S /g, " SRNS "],
 ];
 // Abreviaturas cortas o que no son el principio de la palabra entera (las que sí lo son, como CREM o CONT, ya casan solas)
 const ABREV_GDC = { CR: "CREMA", CRE: "CREMA", CREAM: "CREMA", EM: "EMULSION", EMU: "EMULSION", EMULS: "EMULSION", OJ: "OJOS",
   SOB: "SOBRE", MUE: "MUESTRA", MUEST: "MUESTRA", GL: "GLOBAL", COL: "COLAGENO", FIR: "FIRMEZA", ILU: "ILUMINADORA",
-  HUDR: "HIDRATANTE", HIDR: "HIDRATANTE", PROM: "PROMO", REC: "RECUPERADORA" };
+  HUDR: "HIDRATANTE", HIDR: "HIDRATANTE", PROM: "PROMO", REC: "RECUPERADORA", SRN: "SRNS" };
 // Palabras que no cuentan al buscar (la «y» llega ya convertida en «I»)
 const NADA_BUSQ = new Set(["DE", "DEL", "LA", "LAS", "EL", "LOS", "Y", "I", "EN", "CON", "PARA", "POR", "UN", "UNA", "UD", "UDS", "UND", "UNIDAD", "UNIDADES", "EUR", "EUROS", "X"]);
 // Lo que casi nunca se vende: va al final salvo que se busque (probadores, sobres, expositores…)
