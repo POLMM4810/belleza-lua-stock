@@ -360,8 +360,8 @@ const FRASES_GDC = [
 const ABREV_GDC = { CR: "CREMA", CRE: "CREMA", CREAM: "CREMA", EM: "EMULSION", EMU: "EMULSION", EMULS: "EMULSION", OJ: "OJOS",
   SOB: "SOBRE", MUE: "MUESTRA", MUEST: "MUESTRA", GL: "GLOBAL", COL: "COLAGENO", FIR: "FIRMEZA", ILU: "ILUMINADORA",
   HUDR: "HIDRATANTE", HIDR: "HIDRATANTE", PROM: "PROMO", REC: "RECUPERADORA" };
-// Palabras que no cuentan al buscar
-const NADA_BUSQ = new Set(["DE", "DEL", "LA", "LAS", "EL", "LOS", "Y", "EN", "CON", "PARA", "POR", "UN", "UNA", "UD", "UDS", "UND", "UNIDAD", "UNIDADES", "EUR", "EUROS", "X"]);
+// Palabras que no cuentan al buscar (la «y» llega ya convertida en «I»)
+const NADA_BUSQ = new Set(["DE", "DEL", "LA", "LAS", "EL", "LOS", "Y", "I", "EN", "CON", "PARA", "POR", "UN", "UNA", "UD", "UDS", "UND", "UNIDAD", "UNIDADES", "EUR", "EUROS", "X"]);
 // Lo que casi nunca se vende: va al final salvo que se busque (probadores, sobres, expositores…)
 const NO_VENTA = ["TESTER", "SOBRE", "MUESTRA", "FOLDER", "DISPLAI", "ENCARTE", "POSTER", "EXPOSITOR", "FICHA", "LISTADO", "LISTAS"]; // ya con Y = I
 function tokensBusq(s) {
@@ -383,13 +383,15 @@ function claveProd(p) {
 function buscarProductos(texto, max) {
   const q = String(texto || "").trim();
   if (!q) return { res: [], parecidos: false };
-  const d = q.replace(/\D/g, "");
+  const d = q.replace(/\D/g, ""), qc = norm(q).replace(/\s+/g, "");
   const ws = [...new Set(tokensBusq(q))].filter((w) => !NADA_BUSQ.has(w));
   const req = ws.filter((w) => !/^\d+$/.test(w)), nums = ws.filter((w) => /^\d+$/.test(w));
   const pideNoVenta = req.some((w) => NO_VENTA.some((x) => x.startsWith(w) && w.length >= 3));
   const filas = [];
   Object.entries(S.prods).forEach(([id, p]) => {
-    const codigo = d.length >= 3 && d.length === q.replace(/\s/g, "").length && ((p.ean || "").includes(d) || (p.cod || "").includes(d));
+    // Código de barras o referencia: el texto entero (también con letras o guiones, p. ej. «GC-1032») o sus cifras («ref 81234»)
+    const ean = norm(p.ean || ""), cod = norm(p.cod || "");
+    const codigo = (qc.length >= 3 && (ean.includes(qc) || cod.includes(qc))) || (d.length >= 3 && (ean.includes(d) || cod.includes(d)));
     const tk = claveProd(p);
     const hit = req.filter((w) => tk.some((x) => cuadra(w, x)));
     const hitN = nums.filter((w) => tk.includes(w)).length;
