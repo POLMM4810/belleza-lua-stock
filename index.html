@@ -347,6 +347,66 @@ const comaNum = (n) => (n == null || n === "" ? "" : String(r2(n)).replace(".", 
 const norm = (s) => String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 const aLista = (v) => (Array.isArray(v) ? v.filter(Boolean) : v && typeof v === "object" ? Object.values(v).filter(Boolean) : []);
 
+/* ---------- Buscador de productos: texto del talonario y abreviaturas de GdC ----------
+   «Timexpert crema wrink-less rich» encuentra «T WRINK L TESTER CR.PRO-C SPF30RICH 50ML»:
+   palabras sueltas en cualquier orden, sin tildes, y entiende las abreviaturas de las facturas. */
+// Frases (ya en mayúsculas, sin tildes ni signos y separadas por espacios) que se traducen antes de mirar palabra a palabra
+const FRASES_GDC = [
+  [/ TIME ?EXPERT /g, " TIMEXPERT "], [/ TRIDES /g, " TIMEXPERT RIDES "], [/ TSUN /g, " TIMEXPERT SUN "],
+  [/ WRINK(?:LE)? ?L(?:ESS)? /g, " WRINKLESS "], [/ LIFT IN /g, " LIFTIN "], [/ R C /g, " RADIANCE C "], [/ S RUM /g, " SERUM "],
+  [/ EXP? LAB /g, " EXPERT LAB "], [/ ROYAL J /g, " ROYAL JELLY "], [/ EXC /g, " EXCEL THERAPY "], [/ O 0?2 /g, " 02 "], [/ C OJ(?:OS)? /g, " CONTORNO OJOS "],
+];
+// Abreviaturas cortas o que no son el principio de la palabra entera (las que sí lo son, como CREM o CONT, ya casan solas)
+const ABREV_GDC = { CR: "CREMA", CRE: "CREMA", CREAM: "CREMA", EM: "EMULSION", EMU: "EMULSION", EMULS: "EMULSION", OJ: "OJOS",
+  SOB: "SOBRE", MUE: "MUESTRA", MUEST: "MUESTRA", GL: "GLOBAL", COL: "COLAGENO", FIR: "FIRMEZA", ILU: "ILUMINADORA",
+  HUDR: "HIDRATANTE", HIDR: "HIDRATANTE", PROM: "PROMO", REC: "RECUPERADORA" };
+// Palabras que no cuentan al buscar
+const NADA_BUSQ = new Set(["DE", "DEL", "LA", "LAS", "EL", "LOS", "Y", "EN", "CON", "PARA", "POR", "UN", "UNA", "UD", "UDS", "UND", "UNIDAD", "UNIDADES", "EUR", "EUROS", "X"]);
+// Lo que casi nunca se vende: va al final salvo que se busque (probadores, sobres, expositores…)
+const NO_VENTA = ["TESTER", "SOBRE", "MUESTRA", "FOLDER", "DISPLAI", "ENCARTE", "POSTER", "EXPOSITOR", "FICHA", "LISTADO", "LISTAS"]; // ya con Y = I
+function tokensBusq(s) {
+  let t = " " + norm(s).replace(/(^|[^A-Z])C\+/g, "$1 C ").replace(/[^A-Z0-9]+/g, " ").replace(/([A-Z])(\d)/g, "$1 $2").replace(/(\d)([A-Z])/g, "$1 $2").replace(/\s+/g, " ").trim() + " ";
+  if (t.startsWith(" T ")) t = " TIMEXPERT" + t.slice(2); // la T inicial de las fichas de GdC es Timexpert
+  FRASES_GDC.forEach(([re, a]) => { t = t.replace(re, a); });
+  // Y = I para que «hidraluronic» o «hialuronico» casen con HYDRALURONIC / HYALURONIC
+  return t.trim().split(" ").filter(Boolean).map((w) => (ABREV_GDC[w] || w).replace(/Y/g, "I"));
+}
+const cuadra = (w, x) => (w.length === 1 || /^\d+$/.test(w) ? x === w : x.startsWith(w) || (x.length >= 4 && w.startsWith(x)));
+const IDX_BUSQ = new Map();
+function claveProd(p) {
+  const k = (p.desc || "") + "|" + (p.prov || "");
+  let v = IDX_BUSQ.get(k);
+  if (!v) { if (IDX_BUSQ.size > 2000) IDX_BUSQ.clear(); v = tokensBusq(p.desc || "").concat(tokensBusq(p.prov || "")); IDX_BUSQ.set(k, v); }
+  return v;
+}
+/* Devuelve { res: [[id, p]…], parecidos: true si ninguno tiene todas las palabras y son los más cercanos } */
+function buscarProductos(texto, max) {
+  const q = String(texto || "").trim();
+  if (!q) return { res: [], parecidos: false };
+  const d = q.replace(/\D/g, "");
+  const ws = [...new Set(tokensBusq(q))].filter((w) => !NADA_BUSQ.has(w));
+  const req = ws.filter((w) => !/^\d+$/.test(w)), nums = ws.filter((w) => /^\d+$/.test(w));
+  const pideNoVenta = req.some((w) => NO_VENTA.some((x) => x.startsWith(w) && w.length >= 3));
+  const filas = [];
+  Object.entries(S.prods).forEach(([id, p]) => {
+    const codigo = d.length >= 3 && d.length === q.replace(/\s/g, "").length && ((p.ean || "").includes(d) || (p.cod || "").includes(d));
+    const tk = claveProd(p);
+    const hit = req.filter((w) => tk.some((x) => cuadra(w, x)));
+    const hitN = nums.filter((w) => tk.includes(w)).length;
+    if (!codigo && !hit.length && !(hitN && !req.length)) return;
+    const todo = codigo || (hit.length === req.length && (req.length > 0 || hitN === nums.length));
+    filas.push({ id, p, todo, score: (codigo ? 100 : 0) + hit.reduce((s, w) => s + (w.length >= 4 ? 2 : 1), 0) + hitN * 0.5,
+      largo: hit.some((w) => w.length >= 4), novta: !pideNoVenta && tk.some((x) => NO_VENTA.includes(x)), n: hit.length, tk: tk.length });
+  });
+  let l = filas.filter((f) => f.todo), parecidos = false;
+  if (!l.length && req.length > 1) { // nada con todas las palabras: los que tengan al menos la mitad
+    l = filas.filter((f) => f.largo && f.n >= Math.ceil(req.length / 2)); parecidos = l.length > 0;
+  }
+  l.sort((a, b) => a.novta - b.novta || b.score - a.score || (a.p.uso === "Venta" ? 0 : 1) - (b.p.uso === "Venta" ? 0 : 1)
+    || ((b.p.stock || 0) > 0) - ((a.p.stock || 0) > 0) || a.tk - b.tk || (a.p.desc || "").localeCompare(b.p.desc || ""));
+  return { res: l.slice(0, max || 12).map((f) => [f.id, f.p]), parecidos };
+}
+
 function toast(msg) {
   const t = document.createElement("div");
   t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -872,15 +932,11 @@ function abrirPicker() {
 }
 function cerrarPicker() { if (S.scanner) stopScan(); show("iReader", false); show("iPick", false); show("iAdd", true); }
 function buscarPick() {
-  const q = norm($("iQ").value.trim());
-  let res = [];
-  if (q) {
-    const d = q.replace(/\D/g, "");
-    res = Object.entries(S.prods).filter(([, p]) => norm(p.desc).includes(q) || (d.length >= 3 && ((p.ean || "").includes(d) || (p.cod || "").includes(d))))
-      .sort((a, b) => (a[1].uso === "Venta" ? 0 : 1) - (b[1].uso === "Venta" ? 0 : 1) || (a[1].desc || "").localeCompare(b[1].desc || "")).slice(0, 12);
-  }
-  $("iRes").innerHTML = !q ? `<div class="empty" style="padding:12px">Escribe parte del nombre o el código</div>`
-    : res.length ? res.map(([id, p]) => `<div class="item" data-id="${esc(id)}"><div class="t"><div class="d">${esc(p.desc)}</div><div class="m">${esc(p.prov || "")} · stock ${p.stock || 0}</div></div><div class="money">${p.pvp != null ? eur(p.pvp) : "—"}</div></div>`).join("")
+  const txt = $("iQ").value.trim();
+  const { res, parecidos } = buscarProductos(txt, 12);
+  $("iRes").innerHTML = !txt ? `<div class="empty" style="padding:12px">Escribe palabras del nombre (como en el talonario) o el código</div>`
+    : res.length ? (parecidos ? `<div class="muted" style="padding:6px 2px">Ninguno tiene todas las palabras. Los más parecidos:</div>` : "")
+      + res.map(([id, p]) => `<div class="item" data-id="${esc(id)}"><div class="t"><div class="d">${esc(p.desc)}</div><div class="m">${esc(p.prov || "")} · stock ${p.stock || 0}</div></div><div class="money">${p.pvp != null ? eur(p.pvp) : "—"}</div></div>`).join("")
     : `<div class="empty" style="padding:12px">Sin resultados</div>`;
   $("iRes").querySelectorAll(".item").forEach((el) => (el.onclick = () => addLinea(el.dataset.id)));
 }
@@ -893,9 +949,8 @@ function addLinea(pid, uds, precio) {
 }
 /* Sugerencias de la IA: el producto del catálogo más parecido a cada línea leída. Nunca se añaden solas. */
 const VACIAS = new Set(["CON", "DEL", "LOS", "LAS", "PARA", "POR", "UND", "UDS", "UNIDAD", "UNIDADES", "EUR"]);
-function palabras(s) {
-  return norm(s).replace(/([A-Z])(\d)/g, "$1 $2").replace(/(\d)([A-Z])/g, "$1 $2").replace(/[^A-Z0-9]+/g, " ").split(" ")
-    .filter((w) => w.length >= 3 && !VACIAS.has(w) && !/^\d+$/.test(w));
+function palabras(s) { // con las abreviaturas de GdC ya traducidas (T → TIMEXPERT, CR → CREMA…)
+  return tokensBusq(s).filter((w) => w.length >= 3 && !VACIAS.has(w) && !/^\d+$/.test(w));
 }
 const casa = (w, x) => x === w || (Math.min(x.length, w.length) >= 4 && (x.startsWith(w) || w.startsWith(x)));
 /* Peso de cada palabra según lo rara que es en el catálogo: "CREMA" o "FACIAL" pesan poco; "COMFORT" pesa mucho. */
@@ -923,7 +978,10 @@ function productoParecido(texto) {
     const cubre = hit.reduce((s, w) => s + peso(w), 0) / total;      // cuánto de lo leído aparece en el producto
     const extra = d.filter((x) => q.some((w) => casa(w, x))).length / d.length; // cuánto del producto aparece en lo leído
     const score = cubre * 0.8 + extra * 0.2;
-    if (!mejor || score > mejor.score) mejor = { id, score, cubre };
+    // A igualdad, mejor lo que se vende y hay en stock que un probador, sobre o muestra
+    const orden = score - (!q.some((w) => NO_VENTA.includes(w)) && d.some((x) => NO_VENTA.includes(x)) ? 0.1 : 0)
+      + (p.uso === "Venta" ? 0.02 : 0) + ((p.stock || 0) > 0 ? 0.01 : 0);
+    if (!mejor || orden > mejor.orden) mejor = { id, score, cubre, orden };
   });
   return mejor && mejor.cubre >= 0.6 && mejor.score >= 0.55 ? mejor.id : null;
 }
@@ -1751,15 +1809,9 @@ function renderChips() {
   $("chips").querySelectorAll(".chip").forEach((c) => (c.onclick = () => { S.filter = c.dataset.f; renderChips(); renderStock(); }));
 }
 function filtered() {
-  const q = $("q").value.trim().toUpperCase();
-  // Sin acentos ni guiones y por palabras sueltas: «máscara exfoliante extra-vitalidad» encuentra MASCARA EXFOLIANTE EXTRA VITALIDAD
-  const pal = norm($("q").value).split(/[^A-Z0-9]+/).filter(Boolean);
+  // Con texto: mismo buscador que la hoja del talonario (palabras sueltas, sin tildes, abreviaturas de GdC, código o referencia)
+  if ($("q").value.trim()) return buscarProductos($("q").value, 300).res;
   return Object.entries(S.prods).filter(([, p]) => {
-    if (q) {
-      if ((p.ean || "").includes(q) || (p.cod || "").includes(q)) return true;
-      const txt = " " + norm((p.desc || "") + " " + (p.prov || "")).replace(/[^A-Z0-9]+/g, " ") + " ";
-      return pal.length > 0 && pal.every((w) => txt.includes(w));
-    }
     if (S.filter === "all") return true;
     if (S.filter === "control") return p.uso !== "No controlar";
     if (S.filter === "low") return isLow(p);
