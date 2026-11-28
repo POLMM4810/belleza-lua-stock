@@ -128,6 +128,7 @@ Al subir el PDF de una factura de Yodeyma, la pantalla de revisión ofrece **Dar
 - Que se vean el número rojo, la fecha y el total.
 - Siempre aparece una pantalla de revisión antes de guardar: comprueba el total.
 - Se pueden seleccionar varias fotos a la vez desde la galería.
+- La foto se guarda reducida (≈100-150 KB) junto a la hoja: al abrir la hoja sale arriba (tócala para verla en grande) y en la lista la 📷 indica que tiene foto. Al eliminar la hoja se borra su foto. Las hojas guardadas antes de esta versión no tienen foto. **Requiere publicar las reglas** (`database.rules.json`, nodo `fotos`) en Realtime Database → Reglas.
 - Mientras lee, deja la app abierta y en pantalla: si el móvil cambia de app o se bloquea, el iPhone corta la conexión («Load failed»). La app reintenta una vez sola y, si vuelve a fallar, lo explica.
 
 ## Copia de seguridad

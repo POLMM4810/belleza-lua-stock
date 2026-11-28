@@ -30,6 +30,10 @@
     "config": {
       ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
       ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true"
+    },
+    "fotos": {
+      ".read": "auth != null && root.child('usuarios').child(auth.uid).val() === true",
+      ".write": "auth != null && root.child('usuarios').child(auth.uid).val() === true"
     }
   }
 }

@@ -530,14 +530,14 @@ function sheet(html) {
 async function aBase64(blob) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
 }
-async function comprimir(file, max) {
+async function comprimir(file, max, calidad) {
   const url = URL.createObjectURL(file);
   try {
     const img = new Image(); img.src = url; await img.decode();
     const k = Math.min(1, (max || 1600) / Math.max(img.naturalWidth, img.naturalHeight));
     const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
     c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    const dataUrl = c.toDataURL("image/jpeg", 0.8);
+    const dataUrl = c.toDataURL("image/jpeg", calidad || 0.8);
     return { b64: dataUrl.split(",")[1], dataUrl };
   } finally { URL.revokeObjectURL(url); }
 }
@@ -842,7 +842,7 @@ function renderIng() {
     const nG = gruposDeclarando(hs).length;
     return `<div class="list"><div class="dayh"><span>${DIAS[dParse(f).getDay()]} ${fCorta(f)} · ${hs.length} hoja${hs.length > 1 ? "s" : ""}${nG > 1 ? " · " + nG + " facturas" : ""}</span><span>${eur(tot)}</span></div>
     ${hs.map((x) => `<div class="item" data-id="${esc(x.id)}"><div class="t"><div class="d">Nº ${x.num}${x.clienta ? " · " + esc(x.clienta) : ""}</div>
-      <div class="m">${x.cremas ? "Cremas " + eur(x.cremas) : ""}${x.cremas && x.colonias ? " · " : ""}${x.colonias ? "Colonias " + eur(x.colonias) : ""}${x.origen === "foto" ? (x.cremas || x.colonias ? " · " : "") + "📷" : ""}${aLista(x.productos).length ? (x.cremas || x.colonias || x.origen === "foto" ? " · " : "") + "🧴 " + aLista(x.productos).reduce((s, l) => s + (int(l.uds) || 0), 0) : ""}</div></div>
+      <div class="m">${x.cremas ? "Cremas " + eur(x.cremas) : ""}${x.cremas && x.colonias ? " · " : ""}${x.colonias ? "Colonias " + eur(x.colonias) : ""}${x.fotoId ? (x.cremas || x.colonias ? " · " : "") + "📷" : ""}${aLista(x.productos).length ? (x.cremas || x.colonias || x.fotoId ? " · " : "") + "🧴 " + aLista(x.productos).reduce((s, l) => s + (int(l.uds) || 0), 0) : ""}</div></div>
       <div class="money">${eur(x.total)}</div></div>`).join("")}</div>`;
   }).join("");
   $("ingList").querySelectorAll(".item").forEach((el) => (el.onclick = () => editIngreso(el.dataset.id)));
@@ -851,6 +851,7 @@ function renderIng() {
 function formIngreso(d, titulo, ctx) {
   return `<h2>${esc(titulo)}</h2>
     ${ctx && ctx.foto ? `<img class="foto" src="${ctx.foto}" alt="Foto de la hoja">` : ""}
+    ${ctx && ctx.fotoBox ? `<div id="iFotoBox" class="muted" style="margin:6px 0">Cargando la foto…</div>` : ""}
     ${ctx && ctx.nota ? `<div class="warn" style="margin:6px 0">${esc(ctx.nota)}</div>` : ""}
     <div class="row"><div><label>Nº de hoja</label><input id="iNum" inputmode="numeric" value="${esc(d.num == null ? "" : d.num)}"></div>
     <div><label>Fecha</label><input id="iFecha" type="date" value="${esc(d.fecha || "")}"></div></div>
@@ -1069,11 +1070,36 @@ async function guardarIngreso(id, d, origen) {
   else upd["ingresos/" + key] = data;
   await db.ref().update(upd); // hoja + movimientos en una sola escritura
   await ajustarStock(deltas);
-  return true;
+  return key;
+}
+/* Foto de la hoja: se guarda reducida en «fotos/» (una por foto, aunque traiga varias hojas) y solo se descarga al abrir la hoja.
+   Va después de guardar la hoja: si la foto falla, la hoja ya está guardada. */
+async function guardarFotoHoja(key, c) {
+  if (!c || !c.fotoId || !c.fotoMini) return;
+  try {
+    if (!S.fotosSubidas) S.fotosSubidas = new Set();
+    if (!S.fotosSubidas.has(c.fotoId)) {
+      await db.ref("fotos/" + c.fotoId).set({ img: c.fotoMini, ts: firebase.database.ServerValue.TIMESTAMP });
+      S.fotosSubidas.add(c.fotoId);
+    }
+    await db.ref("ingresos/" + key + "/fotoId").set(c.fotoId);
+  } catch (e) { console.error(e); toast("Hoja guardada, pero la foto no se pudo guardar"); }
+}
+async function verFotoHoja(fotoId) {
+  const box = $("iFotoBox"); if (!box) return;
+  try {
+    const v = (await db.ref("fotos/" + fotoId + "/img").once("value")).val();
+    if (!$("iFotoBox")) return; // ya se cerró la hoja
+    if (typeof v !== "string" || !v.startsWith("data:image/jpeg;base64,")) { box.textContent = "La foto de esta hoja ya no está guardada."; return; }
+    const img = document.createElement("img"); img.className = "foto"; img.alt = "Foto de la hoja"; img.src = v;
+    img.onclick = () => { img.style.maxHeight = img.style.maxHeight ? "" : "none"; }; // toca para verla en grande
+    box.replaceWith(img);
+  } catch (e) { console.error(e); if ($("iFotoBox")) $("iFotoBox").textContent = "No se pudo cargar la foto."; }
 }
 async function borrarIngreso(id) {
   const x = S.ingresos[id]; if (!x) return;
   const upd = { ["ingresos/" + id]: null }, deltas = {};
+  if (x.fotoId && !Object.entries(S.ingresos).some(([k, o]) => k !== id && o.fotoId === x.fotoId)) upd["fotos/" + x.fotoId] = null;
   aLista(x.productos).forEach((l) => { if (l.mov) upd["movimientos/" + l.mov] = null; deltas[l.pid] = (deltas[l.pid] || 0) + (int(l.uds) || 0); });
   await db.ref().update(upd);
   await ajustarStock(deltas);
@@ -1081,11 +1107,12 @@ async function borrarIngreso(id) {
 
 function editIngreso(id) {
   const x = S.ingresos[id]; if (!x) return;
-  sheet(formIngreso(x, "Hoja Nº " + x.num) + `
+  sheet(formIngreso(x, "Hoja Nº " + x.num, x.fotoId ? { fotoBox: true } : null) + `
     <button class="btn full" style="margin-top:16px" id="iOk">Guardar</button>
     <button class="btn bad full" style="margin-top:8px" id="iDel">Eliminar</button>
     <button class="btn ghost full" style="margin-top:8px" id="iBack">Cerrar</button>`);
   enlazarProductos(x.productos);
+  if (x.fotoId) verFotoHoja(x.fotoId);
   $("iBack").onclick = closeSheet;
   $("iDel").onclick = async () => {
     const uds = aLista(x.productos).reduce((s, l) => s + (int(l.uds) || 0), 0);
@@ -1255,13 +1282,16 @@ $("ingFotos").onchange = async (e) => {
     busy(`Leyendo foto ${i + 1} de ${files.length}…`);
     let img;
     try { img = await comprimir(files[i], 1600); } catch (err) { cola.push({ tipo: "ing", foto: null, datos: {}, nota: "No se pudo abrir la foto " + (i + 1) }); continue; }
-    if (!iaDisponible()) { cola.push({ tipo: "ing", foto: img.dataUrl, datos: {}, nota: "Sin clave de IA: escribe los datos mirando la foto." }); continue; }
+    // Copia más ligera (≈100-150 KB) para guardarla con la hoja y poder revisarla otro día
+    let fotoMini = null; try { fotoMini = (await comprimir(files[i], 1100, 0.6)).dataUrl; } catch (err) {}
+    const foto = { fotoId: fotoMini ? db.ref("fotos").push().key : null, fotoMini };
+    if (!iaDisponible()) { cola.push({ tipo: "ing", foto: img.dataUrl, ...foto, datos: {}, nota: "Sin clave de IA: escribe los datos mirando la foto." }); continue; }
     try {
       const r = await ia(PROMPT_TALONARIO, "image/jpeg", img.b64);
       const hojas = (r && Array.isArray(r.hojas)) ? r.hojas : [];
-      if (!hojas.length) cola.push({ tipo: "ing", foto: img.dataUrl, datos: {}, nota: "La IA no encontró ninguna hoja en esta foto." });
+      if (!hojas.length) cola.push({ tipo: "ing", foto: img.dataUrl, ...foto, datos: {}, nota: "La IA no encontró ninguna hoja en esta foto." });
       hojas.forEach((h) => cola.push({
-        tipo: "ing", foto: img.dataUrl, origen: "foto",
+        tipo: "ing", foto: img.dataUrl, ...foto, origen: "foto",
         datos: { num: int(h.numero) || null, fecha: validISO(h.fecha) ? h.fecha : null, total: num(h.total), cremas: num(h.cremas) || 0, colonias: num(h.colonias) || 0,
           clienta: nombrePropio(h.clienta) || null, servicios: aLista(h.servicios).filter((x) => SERVICIOS.includes(x)) },
         sug: sugerencias(h.lineas),
@@ -1269,7 +1299,7 @@ $("ingFotos").onchange = async (e) => {
       }));
     } catch (err) {
       console.error(err);
-      cola.push({ tipo: "ing", foto: img.dataUrl, datos: {}, nota: "No se pudo leer con IA (" + err.message + "). Escríbelo a mano." });
+      cola.push({ tipo: "ing", foto: img.dataUrl, ...foto, datos: {}, nota: "No se pudo leer con IA (" + err.message + "). Escríbelo a mano." });
     }
   }
   busy();
@@ -1299,7 +1329,9 @@ function revisarCola() {
     const [d, err] = leerFormIngreso(); if (err) return toast(err);
     $("iOk").disabled = true;
     try {
-      if (!(await guardarIngreso(null, d, c.origen || "manual"))) { $("iOk").disabled = false; return; }
+      const key = await guardarIngreso(null, d, c.origen || "manual");
+      if (!key) { $("iOk").disabled = false; return; }
+      await guardarFotoHoja(key, c);
       S.colaN++; S.cola.shift();
       if (S.cola[0] && S.cola[0].tipo === "ing" && !S.cola[0].origen) S.cola[0].datos.num = d.num + 1;
       revisarCola();
